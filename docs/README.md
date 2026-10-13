@@ -18,7 +18,8 @@ Start here, then open the file that matches the question.
 
 Workbook: `../ETHGlobal_Mumbai_2026_Research.xlsx`  
 Long report: `../reports/ETHGlobal Mumbai 2026 strategy.md`  
-**Build next:** [`../guides/README.md`](../guides/README.md) (Flash API, policy, hour-zero). Specs: [`../specs/`](../specs/).
+**Build next:** [`../guides/README.md`](../guides/README.md) (Flash API, policy, hour-zero). Specs: [`../specs/`](../specs/).  
+**Talk applied (MVS / SLIP / OSS):** [`../guides/09-company-gap-and-oss.md`](../guides/09-company-gap-and-oss.md).
 
 ## One-screen decision
 
