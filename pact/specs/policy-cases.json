@@ -1,0 +1,124 @@
+{
+  "policy": {
+    "chain": "base",
+    "maxNotionalUsd": 30,
+    "maxDailyUsd": 50,
+    "minNotionalUsd": 5,
+    "allowModify": true,
+    "allowPairs": [
+      "0x4200000000000000000000000000000000000006:0x833589fcd6edb6e08f4c7c32d4f71b54bda02913"
+    ],
+    "allowOrderTypes": ["twap", "limit"],
+    "allowSides": ["buy"],
+    "maxSlippage": "0.05",
+    "maxPriceImpact": "0.05"
+  },
+  "weth": "0x4200000000000000000000000000000000000006",
+  "usdc": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+  "cases": [
+    {
+      "name": "allow_twap_25",
+      "dailySpentUsd": 0,
+      "proposal": {
+        "chain": "base",
+        "targetAsset": "0x4200000000000000000000000000000000000006",
+        "contraAsset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+        "side": "buy",
+        "orderType": "twap",
+        "qty": "25",
+        "notionalUsd": 25,
+        "maxPriceImpact": "0.05",
+        "durationSeconds": 600
+      },
+      "expect": { "verdict": "ALLOW", "reasons": [] }
+    },
+    {
+      "name": "block_market_500_type_and_size",
+      "dailySpentUsd": 0,
+      "proposal": {
+        "chain": "base",
+        "targetAsset": "0x4200000000000000000000000000000000000006",
+        "contraAsset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+        "side": "buy",
+        "orderType": "market",
+        "qty": "500",
+        "notionalUsd": 500,
+        "maxSlippage": "0.05"
+      },
+      "expect": {
+        "verdict": "BLOCK",
+        "reasonsInclude": ["ORDER_TYPE_NOT_ALLOWED"]
+      }
+    },
+    {
+      "name": "block_pair",
+      "dailySpentUsd": 0,
+      "proposal": {
+        "chain": "base",
+        "targetAsset": "0x0000000000000000000000000000000000000001",
+        "contraAsset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+        "side": "buy",
+        "orderType": "twap",
+        "qty": "10",
+        "notionalUsd": 10
+      },
+      "expect": {
+        "verdict": "BLOCK",
+        "reasonsInclude": ["PAIR_NOT_ALLOWED"]
+      }
+    },
+    {
+      "name": "modify_clip_80_to_30",
+      "dailySpentUsd": 0,
+      "proposal": {
+        "chain": "base",
+        "targetAsset": "0x4200000000000000000000000000000000000006",
+        "contraAsset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+        "side": "buy",
+        "orderType": "limit",
+        "qty": "80",
+        "notionalUsd": 80,
+        "limitNotionalPrice": "1000"
+      },
+      "expect": {
+        "verdict": "MODIFY",
+        "modifiedQty": "30",
+        "reasonsInclude": ["SIZE_EXCEEDS_MAX"]
+      }
+    },
+    {
+      "name": "block_daily_cap_no_room",
+      "dailySpentUsd": 48,
+      "proposal": {
+        "chain": "base",
+        "targetAsset": "0x4200000000000000000000000000000000000006",
+        "contraAsset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+        "side": "buy",
+        "orderType": "twap",
+        "qty": "25",
+        "notionalUsd": 25
+      },
+      "expect": {
+        "verdict": "BLOCK",
+        "reasonsInclude": ["DAILY_CAP"]
+      }
+    },
+    {
+      "name": "block_sell",
+      "dailySpentUsd": 0,
+      "proposal": {
+        "chain": "base",
+        "targetAsset": "0x4200000000000000000000000000000000000006",
+        "contraAsset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+        "side": "sell",
+        "orderType": "twap",
+        "qty": "0.01",
+        "notionalUsd": 20
+      },
+      "expect": {
+        "verdict": "BLOCK",
+        "reasonsInclude": ["SIDE_NOT_ALLOWED"]
+      }
+    }
+  ]
+}
