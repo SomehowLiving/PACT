@@ -8,3 +8,6 @@ dist/
 coverage/
 *.log
 hackathon/app/
+pact/node_modules/
+pact/.next/
+pact/coverage/

@@ -1,5 +1,7 @@
 # Classic vs Continuity
 
+> **Update 18 Oct 2026 — decision: Continuity.** The app in `pact/` was written before kickoff, so it competes on the Continuity track. Definitive’s Continuity-only prize (Most Creative, $2,500) and Arc’s Continuity bounty ($3,000) are open to it, and the Definitive Social App prize ($2,500) lists no restriction. The text below is the original Classic analysis, kept for reference. Prize amounts below are stale: the live pages show Definitive = two $2,500 prizes, not $3,500 + $1,500.
+
 **Access:** 2026-10-13. Source: https://ethglobal.com/events/mumbai/info/details
 
 ## Decision

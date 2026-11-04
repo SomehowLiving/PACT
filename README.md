@@ -3,7 +3,7 @@
 Policy-aware copy trading on **Definitive Flash**. Follower wallet signs; policy can still **BLOCK**.
 
 Event: **5–7 Nov 2026**, Mumbai. Submission **Sat 7 Nov 09:00 IST**.  
-Primary prize: Definitive Flash social app **$3,500**.
+Primary prize: Definitive Flash social app **$2,500** (plus the Continuity-only Most Creative **$2,500**). Arc Continuity bounty **$3,000**. Verified against the live prize pages on 18 Oct 2026.
 
 ## Start here
 
@@ -13,7 +13,7 @@ Primary prize: Definitive Flash social app **$3,500**.
 4. **Company gap + OSS** — [`guides/09-company-gap-and-oss.md`](guides/09-company-gap-and-oss.md)
 5. **Workbook** — [`ETHGlobal_Mumbai_2026_Research.xlsx`](ETHGlobal_Mumbai_2026_Research.xlsx)
 
-This repository is **research + integration specs**. It is not the hackathon app. Create the app at kickoff so you stay on **Classic** ([`guides/00-classic-vs-continuity.md`](guides/00-classic-vs-continuity.md)).
+The product app lives in [`pact/`](pact/). It was written before kickoff, so it is submitted on the **Continuity** track (decision made 18 Oct 2026; see [`guides/00-classic-vs-continuity.md`](guides/00-classic-vs-continuity.md)).
 
 ## Next steps
 
@@ -46,10 +46,11 @@ Leader strategy → follower policy → proposal → **ALLOW / MODIFY / BLOCK** 
 ## Layout
 
 ```
+pact/          Next.js app (floor / lead / follow)
 docs/          strategy research (sponsors, winners, PACT verdict)
 guides/        how to integrate Flash, policy, demo, hour 0
 specs/         data model, policy test vectors, MVP checklist
-hackathon/     empty until kickoff
+hackathon/     pointer to pact/
 reports/       long strategy memo
 ```
 

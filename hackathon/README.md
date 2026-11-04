@@ -1,8 +1,5 @@
-# Product app — create at kickoff
+# Product app
 
-Leave this folder empty until **Thursday 5 Nov 2026** if you are on **Classic**.
+The running app is [`../pact`](../pact).
 
-At hour 0 follow [`../guides/08-hour-zero.md`](../guides/08-hour-zero.md).
-
-Do not put Next.js, policy implementations, or Flash client code here before the event.
-
+Writing it before 5 Nov 2026 means a Mumbai submission of this repo is **Continuity**, not Classic. See [`../guides/00-classic-vs-continuity.md`](../guides/00-classic-vs-continuity.md).
