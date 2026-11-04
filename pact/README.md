@@ -1,0 +1,72 @@
+# pact
+
+Policy-aware copy trading on Definitive Flash.
+
+> Copy a trader without giving up your keys or your risk limits.
+
+A follower copies one leader’s Flash order (TWAP, limit, take-profit, stop-loss) on Base or Arc, with a hard USD cap, without depositing into a vault and without giving a bot their key. Follower wallet signs. Policy can still **BLOCK**, and a wallet-side guard re-verifies every signature request in the browser.
+
+## Run
+
+```bash
+cp .env.example .env.local
+# replace FLASH_API_KEY with your integrator key for the submitted demo
+npm install
+npm test
+npm run dev
+```
+
+Open http://localhost:3000
+
+- `/` floor — remaining cap, tape, blocked notional, Flash health, demo seed, and **same trade, your rules**: one leader trade, three desks (steady → MODIFY, bold → ALLOW, careful → BLOCK) with live what-if sliders that run the real `decide()`
+- `/leader` publish TWAP $25 (ALLOW) or market $500 (BLOCK)
+- `/follower` edit your own limits (cap, daily, chains, order types, sides), mirror, review the wallet guard, sign, or stay locked
+
+Two browser profiles. Follower needs Base ETH + ~40 USDC.
+
+Load the demo without wallets: **load demo tape** on the floor, or `POST /api/demo`. That writes ALLOW TWAP $25 and BLOCK market $500 for `0x2222…2222`, plus a $60 TWAP copied by three desks (`0x2222…` steady, `0x3333…` bold, `0x4444…` careful).
+
+## Track
+
+This app was written before the ETHGlobal Mumbai kickoff (5 Nov 2026). It is submitted on the **Continuity** track: pre-existing work is documented here, and new work is committed in small steps during the event. Classic would bar prior project code from partner prizes and Finalist.
+
+Prizes checked against the live pages on 18 Oct 2026: Definitive has two $2,500 prizes (Social App, and Most Creative which is Continuity-only). Arc has a $3,000 Continuity bounty and Flash lists Arc (chain 5042). The Definitive page does not state whether Continuity teams are barred from the Social App prize, so confirm with the organizers.
+
+## Brand
+
+UI direction from `public/brand/` (plum glass, gold arcs, chevron mark, orb). Not a vault. Not a chatbot.
+
+## Threat model
+
+| Actor | Trust | What they can do |
+| --- | --- | --- |
+| Leader | untrusted | Post a Flash-shaped intent. Cannot spend follower funds. |
+| LLM / agent | untrusted | Propose copy. Policy runs before any quote or signature. |
+| Policy `decide()` | trusted | ALLOW / MODIFY / BLOCK. First BLOCK wins. |
+| Follower wallet | signer | EIP-712 + `approveTx`. Only this key spends. |
+| PACT server | semi-trusted | Holds `FLASH_API_KEY`. Must refuse BLOCK. Can submit a signature it already has. |
+| Flash | executor | Honors the signed order. Does not read policy. |
+
+### Wallet guard (answers “what if the PACT server lies?”)
+
+`lib/guard.ts` runs in the follower’s browser on the raw payloads Flash returned, before any wallet prompt, and again on the server. It refuses to sign unless: the swapper and recipient are the follower, both tokens match the proposal, `fromAmount` and the Permit2 amount are at most the policy-approved size, the permit spender is the Flash contract, the approve call goes only to the spent token for Permit2, the signing domain is the right chain, and the deadline is in the future. Thirteen tests, including a server that inflates the amount, redirects proceeds, swaps the token, or approves the wrong spender.
+
+Honest limits: the guard pins the Flash contract address and checks what is signed, not what Flash does afterward. The ERC-20 approval to Permit2 is max uint256 (Flash’s quote), so the hard spend limit is the signed Permit2 amount, which expires in about 24 h. Trigger orders (take-profit, stop-loss) carry a very long deadline by design, so the guard warns and the order can be cancelled in Definitive.
+
+PACT never stores a follower private key. A stolen integrator key can quote and submit **already-signed** orders; it cannot spend unapproved funds. `forceMinimalAllowance` plus Permit2 still depends on what Flash returns in `approveTx` — playground quotes currently approve Permit2 for max uint256; sized spend is the Permit2 permit amount.
+
+BLOCK never calls `/quote` or `/order`. Sign is disabled on BLOCK and when the connected wallet is not the proposal follower. `POST /order` returns 403 if the verdict is BLOCK or if `funderAddress` ≠ follower.
+
+The EIP-712 payload binds token, total input, recipient, and deadline. TWAP duration and triggers sit offchain; Flash honors the signature, not this policy. Integrator cancel in Definitive Admin is a central kill switch, not follower safety.
+
+Demo state is a local JSON file (`.data/store.json`). It is not production persistence.
+
+## Flash
+
+REST `https://flash.definitive.fi/v1` with `x-definitive-api-key`. Order types: market, limit, TWAP, take-profit, stop-loss. Chains: Base (8453) and Arc (5042). The playground key is rate limited to 5 requests/second. Quote flags: `forceMinimalAllowance`, `evmUsePermit2`, `funderAddress` = follower. TWAP `durationSeconds` is quote-only (min 300). Integrator fee is `"0"` in-app; Flash `/quote` rejects a zero `flashIntegratorFeeBps`, so the field is omitted on the wire until it is a positive decimal. Flash is mainnet-only (no testnets), so a live fill uses real funds. Playground key is for local quotes; the submitted demo uses a key from app.definitive.fi.
+
+Health: `GET /api/health` hits Flash `/search`.
+
+## AI
+
+This product was written with Grok Build (xAI). Policy cases, Flash client, and UI are in this repo; Flash itself is Definitive’s.
