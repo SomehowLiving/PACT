@@ -1,14 +1,23 @@
 "use client";
 
 import { Gauge } from "@/components/Gauge";
-import { VerdictPill } from "@/components/VerdictPill";
+import { CopyActionPill } from "@/components/CopyActionPill";
 import { useDesk } from "@/components/useDesk";
-import { defaultPolicy } from "@/lib/constants";
+import { defaultPolicy, WETH } from "@/lib/constants";
 import { CHAINS, CHAIN_IDS } from "@/lib/chains";
 import { verifySigning, type GuardResult } from "@/lib/guard";
 import { cancelMessage, parseOrderTypedData } from "@/lib/typed";
 import { reasonLabel, shortAddr, usd } from "@/lib/format";
-import type { Chain, Decision, OrderType, Policy, Proposal, Side } from "@/lib/types";
+import type {
+  Chain,
+  Decision,
+  FollowerExitMode,
+  LeaderMandate,
+  OrderType,
+  Policy,
+  Proposal,
+  Side,
+} from "@/lib/types";
 import { useEffect, useState } from "react";
 import {
   useAccount,
@@ -48,7 +57,7 @@ export function FollowDesk() {
     try {
       const follows = policy.follows ?? [];
       for (const s of state?.strategies ?? []) {
-        if (follows.length && !follows.some((l) => l.toLowerCase() === s.leader.toLowerCase())) {
+        if (!follows.some((l) => l.toLowerCase() === s.leader.toLowerCase())) {
           continue;
         }
         await fetch("/api/proposals", {
@@ -66,6 +75,10 @@ export function FollowDesk() {
   }
 
   const spent = state?.dailySpentUsd ?? 0;
+  const recordedLeaderLoss = Object.values(state?.leaderDailyRealizedLossesUsd ?? {}).reduce(
+    (sum, loss) => sum + loss,
+    0,
+  );
   const maxDaily = policy.maxDailyUsd;
   const all = state?.proposals ?? [];
   const mine = all.filter(
@@ -73,20 +86,44 @@ export function FollowDesk() {
   );
   const tape = mine.length ? mine : all;
   const preview = mine.length === 0 && tape.length > 0;
+  const concentration = Object.values(
+    mine.reduce<Record<string, { label: string; notionalUsd: number; leaders: Set<string> }>>(
+      (groups, proposal) => {
+        const decision = state?.decisions[proposal.id];
+        if (!decision || decision.verdict === "BLOCK") return groups;
+        const key = `${proposal.targetAsset.toLowerCase()}:${proposal.side}`;
+        const group = groups[key] ?? {
+          label: `${proposal.targetAsset.toLowerCase() === WETH.toLowerCase() ? "WETH" : shortAddr(proposal.targetAsset)} ${proposal.side}`,
+          notionalUsd: 0,
+          leaders: new Set<string>(),
+        };
+        group.notionalUsd += Number(decision.modifiedQty ?? proposal.notionalUsd);
+        group.leaders.add(proposal.leader.toLowerCase());
+        groups[key] = group;
+        return groups;
+      },
+      {},
+    ),
+  );
 
   return (
     <div className="grid gap-5 lg:grid-cols-[0.85fr_1.15fr]">
       <section className="glass rounded-[32px] p-6">
         <div className="text-[11px] uppercase tracking-[0.22em] text-mute">
-          follower policy
+          follower workspace
         </div>
         <h1 className="mt-2 font-[family-name:var(--font-serif)] text-[32px] italic leading-tight">
-          sign, or don’t
+          build your copy mandate
         </h1>
         <p className="mt-2 text-sm text-mute">
-          Flash never reads this policy. BLOCK means no signature, no{" "}
-          <span className="font-mono text-[11px]">/order</span>.
+          Pick leaders, define a budget and exit choice for each, then review every Flash
+          order before you sign. PACT never holds a trading key.
         </p>
+        <div className="mt-4 grid grid-cols-3 gap-2 text-[10px] uppercase tracking-[0.12em] text-mute">
+          <div className="rounded-xl bg-white/[0.04] px-2 py-2 hairline">1 · mandate</div>
+          <div className="rounded-xl bg-white/[0.04] px-2 py-2 hairline">2 · review</div>
+          <div className="rounded-xl bg-white/[0.04] px-2 py-2 hairline">3 · self-sign</div>
+        </div>
 
         <Gauge
           value={spent}
@@ -98,12 +135,45 @@ export function FollowDesk() {
         <dl className="mt-2 space-y-2 text-[13px]">
           <Row k="max / order" v={usd(policy.maxNotionalUsd)} />
           <Row k="daily" v={usd(policy.maxDailyUsd)} />
+          <Row k="copy size" v={`${Math.round(policy.copyRatio * 100)}% of leader`} />
+          <Row k="leaders selected" v={`${policy.follows?.length ?? 0} / 3`} />
+          <Row k="per-leader sleeve" v={usd(policy.maxLeaderDailyUsd)} />
+          <Row
+            k="loss breaker / leader"
+            v={policy.enableLeaderLossCircuitBreaker ? `${usd(policy.maxLeaderDailyRealizedLossUsd)} / day` : "off"}
+          />
+          <Row k="recorded losses today" v={usd(recordedLeaderLoss)} />
+          <Row k="same-asset exposure" v={usd(policy.maxAssetExposureUsd)} />
+          <Row k="live plans" v={`${policy.maxOpenPlans} total · ${policy.maxOpenPlansPerLeader} / leader`} />
           <Row k="chains" v={(policy.allowChains ?? [policy.chain]).join(" · ")} />
           <Row k="types" v={policy.allowOrderTypes.join(" · ")} />
           <Row k="sides" v={policy.allowSides.join(" · ")} />
           <Row k="pair" v="WETH / USDC" />
           <Row k="fee bps" v="0" />
         </dl>
+        <div className="mt-4 rounded-2xl bg-black/25 p-3 hairline">
+          <div className="text-[11px] uppercase tracking-[0.14em] text-mute">
+            concentration, not a prediction
+          </div>
+          {concentration.length ? (
+            <div className="mt-2 space-y-1.5 text-[12px]">
+              {concentration.map((item) => (
+                <div key={item.label} className="flex items-center justify-between gap-3">
+                  <span className="text-ink">{item.label}</span>
+                  <span className="text-mute">
+                    {usd(item.notionalUsd)} · {item.leaders.size} leader{item.leaders.size === 1 ? "" : "s"}
+                  </span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="mt-2 text-[12px] text-mute">No allowed copy intents yet.</p>
+          )}
+          <p className="mt-2 text-[10px] leading-relaxed text-mute">
+            PACT shows same-asset, same-side concentration. It does not claim a statistical
+            correlation estimate from insufficient history.
+          </p>
+        </div>
         {isConnected && address ? (
           <PolicyEditor
             key={JSON.stringify(policy)}
@@ -169,7 +239,7 @@ function Row({ k, v }: { k: string; v: string }) {
   );
 }
 
-type StepId = "quote" | "guard" | "approve" | "permit" | "sign" | "submit";
+type StepId = "quote" | "guard" | "approve" | "permit" | "sign" | "bracket" | "submit";
 type StepState = "idle" | "active" | "done" | "fail" | "skip";
 const STEPS: { id: StepId; label: string }[] = [
   { id: "quote", label: "Flash quote" },
@@ -177,6 +247,7 @@ const STEPS: { id: StepId; label: string }[] = [
   { id: "approve", label: "approve allowance" },
   { id: "permit", label: "sign Permit2" },
   { id: "sign", label: "sign order" },
+  { id: "bracket", label: "sign TP/SL bracket" },
   { id: "submit", label: "submit to Flash" },
 ];
 const IDLE: Record<StepId, StepState> = {
@@ -185,6 +256,7 @@ const IDLE: Record<StepId, StepState> = {
   approve: "idle",
   permit: "idle",
   sign: "idle",
+  bracket: "idle",
   submit: "idle",
 };
 const TERMINAL = [
@@ -287,6 +359,11 @@ function ProposalCard({
         orderTypedData?: string;
         permitTypedData?: string;
         approveTx?: { to: `0x${string}`; data: `0x${string}` };
+        attachedBracket?: {
+          orderTypedData?: string;
+          permitTypedData?: string;
+          approveTx?: { to: `0x${string}`; data: `0x${string}` };
+        };
       };
       mark("quote", "done");
 
@@ -324,6 +401,17 @@ function ProposalCard({
       } else {
         mark("approve", "skip");
       }
+      if (quote.attachedBracket?.approveTx) {
+        mark("approve", "active");
+        const tx = await sendTransactionAsync({
+          to: quote.attachedBracket.approveTx.to,
+          data: quote.attachedBracket.approveTx.data,
+        });
+        setApproveHash(tx);
+        if (!publicClient) throw new Error("no public client");
+        await publicClient.waitForTransactionReceipt({ hash: tx });
+        mark("approve", "done");
+      }
       if (quote.permitTypedData) {
         mark("permit", "active");
         const permit = parseOrderTypedData(quote.permitTypedData);
@@ -337,6 +425,18 @@ function ProposalCard({
       } else {
         mark("permit", "skip");
       }
+      let attachedBracketPermitSignature: string | undefined;
+      if (quote.attachedBracket?.permitTypedData) {
+        mark("permit", "active");
+        const permit = parseOrderTypedData(quote.attachedBracket.permitTypedData);
+        attachedBracketPermitSignature = await signTypedDataAsync({
+          domain: permit.domain as never,
+          types: permit.types,
+          primaryType: permit.primaryType,
+          message: permit.message,
+        });
+        mark("permit", "done");
+      }
       if (!quote.orderTypedData) {
         throw new Error("empty orderTypedData — funderAddress missing?");
       }
@@ -349,6 +449,20 @@ function ProposalCard({
         message: typed.message,
       });
       mark("sign", "done");
+      let attachedBracketSignature: string | undefined;
+      if (quote.attachedBracket?.orderTypedData) {
+        mark("bracket", "active");
+        const bracket = parseOrderTypedData(quote.attachedBracket.orderTypedData);
+        attachedBracketSignature = await signTypedDataAsync({
+          domain: bracket.domain as never,
+          types: bracket.types,
+          primaryType: bracket.primaryType,
+          message: bracket.message,
+        });
+        mark("bracket", "done");
+      } else {
+        mark("bracket", "skip");
+      }
       mark("submit", "active");
       const oRes = await fetch("/api/order", {
         method: "POST",
@@ -357,6 +471,8 @@ function ProposalCard({
           proposalId: proposal.id,
           userSignature,
           evmPermitSignature,
+          attachedBracketSignature,
+          attachedBracketPermitSignature,
           funderAddress: address,
         }),
       });
@@ -404,7 +520,15 @@ function ProposalCard({
             : "sign";
   const showSteps = started || Boolean(receipt?.flashOrderId);
   const stepView: Record<StepId, StepState> = receipt?.flashOrderId && !started
-    ? { quote: "done", guard: "done", approve: "done", permit: "done", sign: "done", submit: "done" }
+    ? {
+        quote: "done",
+        guard: "done",
+        approve: "done",
+        permit: "done",
+        sign: "done",
+        bracket: proposal.protectionExpiresAt ? "done" : "skip",
+        submit: "done",
+      }
     : steps;
   const progress =
     receipt?.twapBucketCount && receipt.twapBucketCount > 0
@@ -419,17 +543,18 @@ function ProposalCard({
       <div className="flex items-start justify-between gap-3">
         <div>
           <div className="flex items-center gap-2">
-            <span className="text-[16px]">WETH {proposal.orderType}</span>
+            <span className="text-[16px]">{proposal.title}</span>
             <span className="rounded-full bg-white/5 px-2 py-0.5 text-[10px] uppercase tracking-widest text-mute">
               {proposal.chain}
             </span>
-            {decision ? <VerdictPill verdict={decision.verdict} /> : null}
+            {decision ? <CopyActionPill action={decision.action} verdict={decision.verdict} /> : null}
           </div>
           <div className="mt-1 text-[13px] text-mute">
-            {proposal.side} · {usd(proposal.notionalUsd)}
+            {proposal.orderType} {proposal.side} · {usd(proposal.notionalUsd)}
             {proposal.durationSeconds ? ` · ${proposal.durationSeconds / 60}m` : ""}
             {proposal.triggers?.[0] ? ` · trigger $${proposal.triggers[0].notionalPrice}` : ""}
             {decision?.modifiedQty ? ` · clipped to ${decision.modifiedQty}` : ""}
+            {` · ${(proposal.copySizingMode ?? "PROPORTIONAL").toLowerCase()} copy · ${(proposal.followerExitMode ?? "FOLLOWER_BRACKET") === "FOLLOWER_BRACKET" ? "Flash bracket" : "manual exit"}`}
           </div>
         </div>
         <button
@@ -442,6 +567,46 @@ function ProposalCard({
         >
           {lockLabel}
         </button>
+      </div>
+      <div className="mt-3 rounded-2xl bg-black/20 p-3 hairline">
+        <p className="text-[12px] text-ink/90">{proposal.thesis}</p>
+        <p className="mt-1 text-[11px] text-mute">
+          Copy window ends{" "}
+          {new Date(proposal.expiresAt).toLocaleTimeString([], {
+            hour: "2-digit",
+            minute: "2-digit",
+          })}
+          {proposal.maxFollowerNotionalUsd
+            ? ` · plan cap ${usd(proposal.maxFollowerNotionalUsd)}`
+            : ""}
+          {proposal.entryReferencePrice
+            ? ` · reference $${proposal.entryReferencePrice}`
+            : ""}
+        </p>
+        {proposal.invalidation ? (
+          <p className="mt-1 text-[11px] text-gold">
+            invalidation · {proposal.invalidation}
+          </p>
+        ) : null}
+        <p className="mt-1 text-[11px] text-mute">
+          leader plan · {(proposal.leaderPlanGrade ?? "INCOMPLETE").toLowerCase()}
+          {proposal.stopLossPrice ? ` · stop $${proposal.stopLossPrice}` : ""}
+          {proposal.takeProfitPrice ? ` · target $${proposal.takeProfitPrice}` : ""}
+        </p>
+        <p className="mt-1 text-[11px] text-mute">
+          Flash execution evidence · {(proposal.leaderEvidenceStatus ?? "UNVERIFIED").toLowerCase()}
+        </p>
+        {proposal.side === "buy" && proposal.protectionExpiresAt ? (
+          <p className="mt-1 text-[11px] text-gold">
+            Flash TP/SL bracket · attaches on signature · protects received WETH until{" "}
+            {new Date(proposal.protectionExpiresAt).toLocaleString([], {
+              month: "short",
+              day: "numeric",
+              hour: "2-digit",
+              minute: "2-digit",
+            })}
+          </p>
+        ) : null}
       </div>
       {decision?.reasons.length ? (
         <div className="mt-3 flex flex-wrap gap-2">
@@ -613,6 +778,18 @@ function toggle<T>(list: T[], v: T): T[] {
   return list.includes(v) ? list.filter((x) => x !== v) : [...list, v];
 }
 
+function defaultMandate(leader: `0x${string}`, policy: Policy): LeaderMandate {
+  return {
+    leader,
+    sizingMode: "PROPORTIONAL",
+    copyRatio: policy.copyRatio,
+    fixedNotionalUsd: policy.minNotionalUsd,
+    maxDailyUsd: policy.maxLeaderDailyUsd,
+    allowOrderTypes: [...policy.allowOrderTypes],
+    exitMode: "FOLLOWER_BRACKET",
+  };
+}
+
 function PolicyEditor({
   policy,
   leaders,
@@ -629,6 +806,16 @@ function PolicyEditor({
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const chains = draft.allowChains ?? [];
+
+  function updateMandate(leader: `0x${string}`, patch: Partial<LeaderMandate>) {
+    const current =
+      draft.mandates?.find((mandate) => mandate.leader.toLowerCase() === leader.toLowerCase()) ??
+      defaultMandate(leader, draft);
+    const mandates = draft.mandates?.filter(
+      (mandate) => mandate.leader.toLowerCase() !== leader.toLowerCase(),
+    ) ?? [];
+    setDraft({ ...draft, mandates: [...mandates, { ...current, ...patch }] });
+  }
 
   async function save() {
     setSaving(true);
@@ -651,7 +838,18 @@ function PolicyEditor({
 
   return (
     <div className="mt-5 rounded-2xl bg-black/25 p-4 hairline">
-      <div className="text-[12px] text-ink">your limits</div>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="text-[12px] text-ink">your copy plan</div>
+          <p className="mt-1 text-[11px] leading-relaxed text-mute">
+            Leader mandates define how each trader can use your portfolio. The controls below
+            are shared guardrails across every mandate.
+          </p>
+        </div>
+        <span className="rounded-full bg-[#e8c9a0]/10 px-2 py-1 text-[10px] uppercase tracking-[0.12em] text-gold">
+          step 1
+        </span>
+      </div>
       <div className="mt-3 grid grid-cols-2 gap-3">
         <NumField
           label="max / order $"
@@ -663,7 +861,62 @@ function PolicyEditor({
           value={draft.maxDailyUsd}
           onChange={(v) => setDraft({ ...draft, maxDailyUsd: v })}
         />
+        <NumField
+          label="copy size %"
+          value={Math.round(draft.copyRatio * 100)}
+          onChange={(v) => setDraft({ ...draft, copyRatio: v / 100 })}
+        />
+        <NumField
+          label="per leader / day $"
+          value={draft.maxLeaderDailyUsd}
+          onChange={(v) => setDraft({ ...draft, maxLeaderDailyUsd: v })}
+        />
+        <NumField
+          label="leader loss breaker / day $"
+          value={draft.maxLeaderDailyRealizedLossUsd}
+          onChange={(v) => setDraft({ ...draft, maxLeaderDailyRealizedLossUsd: v })}
+        />
+        <NumField
+          label="same-asset exposure $"
+          value={draft.maxAssetExposureUsd}
+          onChange={(v) => setDraft({ ...draft, maxAssetExposureUsd: v })}
+        />
+        <NumField
+          label="max live plans"
+          value={draft.maxOpenPlans}
+          onChange={(v) => setDraft({ ...draft, maxOpenPlans: v })}
+        />
+        <NumField
+          label="plans / leader"
+          value={draft.maxOpenPlansPerLeader}
+          onChange={(v) => setDraft({ ...draft, maxOpenPlansPerLeader: v })}
+        />
+        <NumField
+          label="entry drift %"
+          value={Number(draft.maxEntryDrift) * 100}
+          onChange={(v) => setDraft({ ...draft, maxEntryDrift: String(v / 100) })}
+        />
+        <NumField
+          label="max quote impact %"
+          value={Number(draft.maxPriceImpact) * 100}
+          onChange={(v) => setDraft({ ...draft, maxPriceImpact: String(v / 100) })}
+        />
+        <NumField
+          label="max slippage %"
+          value={Number(draft.maxSlippage) * 100}
+          onChange={(v) => setDraft({ ...draft, maxSlippage: String(v / 100) })}
+        />
+        <NumField
+          label="minimum reward:risk"
+          value={draft.minRewardRisk}
+          onChange={(v) => setDraft({ ...draft, minRewardRisk: v })}
+        />
       </div>
+      <p className="mt-3 text-[11px] leading-relaxed text-mute">
+        The loss breaker stops new copies from a leader after recorded realized losses reach
+        this value. It only acts on closed PACT receipts with P&amp;L evidence; it is not a
+        prediction or a substitute for the attached stop.
+      </p>
       <Chips
         label="chains"
         options={CHAIN_IDS}
@@ -687,35 +940,138 @@ function PolicyEditor({
         }
       />
       {leaders.length ? (
-        <div className="mt-3">
+        <div id="leader-mandates" className="mt-4">
           <div className="text-[11px] text-mute">
-            leaders I copy {draft.follows?.length ? "" : "(all — pick to narrow)"}
+            choose leaders {draft.follows?.length ? `· ${draft.follows.length}/3 selected` : "(up to 3)"}
           </div>
           <div className="mt-1 flex flex-wrap gap-1.5">
             {leaders.map((l) => {
               const list = draft.follows ?? [];
               const on = list.some((x) => x.toLowerCase() === l.toLowerCase());
+              const capped = !on && list.length >= 3;
               return (
                 <button
                   key={l}
                   type="button"
+                  disabled={capped}
                   onClick={() =>
                     setDraft({
                       ...draft,
                       follows: on
                         ? list.filter((x) => x.toLowerCase() !== l.toLowerCase())
                         : [...list, l],
+                      mandates: on
+                        ? (draft.mandates ?? []).filter(
+                            (mandate) => mandate.leader.toLowerCase() !== l.toLowerCase(),
+                          )
+                        : [...(draft.mandates ?? []), defaultMandate(l, draft)],
                     })
                   }
                   className={`rounded-full px-2.5 py-1 font-mono text-[11px] ${
-                    on ? "bg-[#e8c9a0]/20 text-gold" : "bg-white/5 text-mute"
+                    on
+                      ? "bg-[#e8c9a0]/20 text-gold"
+                      : capped
+                        ? "cursor-not-allowed bg-white/[0.025] text-mute/40"
+                        : "bg-white/5 text-mute"
                   }`}
+                  title={capped ? "Remove a leader before adding another" : undefined}
                 >
                   {shortAddr(l)}
                 </button>
               );
             })}
           </div>
+          {(draft.follows ?? []).length ? (
+            <div className="mt-3 space-y-2">
+              <div className="text-[11px] uppercase tracking-[0.14em] text-mute">
+                per-leader mandates
+              </div>
+              {(draft.follows ?? []).map((leader) => {
+                const mandate =
+                  draft.mandates?.find(
+                    (item) => item.leader.toLowerCase() === leader.toLowerCase(),
+                  ) ?? defaultMandate(leader, draft);
+                return (
+                  <div key={leader} className="rounded-2xl bg-white/[0.035] p-3 hairline">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-mono text-[11px] text-ink">{shortAddr(leader)}</span>
+                      <select
+                        value={mandate.exitMode}
+                        onChange={(event) =>
+                          updateMandate(leader, {
+                            exitMode: event.target.value as FollowerExitMode,
+                          })
+                        }
+                        className="rounded-lg bg-black/30 px-2 py-1 text-[11px] text-ink hairline"
+                      >
+                        <option value="FOLLOWER_BRACKET">Flash TP/SL</option>
+                        <option value="MANUAL">manual exit</option>
+                      </select>
+                    </div>
+                    <div className="mt-2 grid grid-cols-2 gap-2">
+                      <label className="text-[10px] text-mute">
+                        copy mode
+                        <select
+                          value={mandate.sizingMode}
+                          onChange={(event) =>
+                            updateMandate(leader, {
+                              sizingMode: event.target.value as LeaderMandate["sizingMode"],
+                            })
+                          }
+                          className="mt-1 w-full rounded-lg bg-black/30 px-2 py-1.5 text-[11px] text-ink hairline"
+                        >
+                          <option value="PROPORTIONAL">proportional</option>
+                          <option value="FIXED">fixed USD</option>
+                        </select>
+                      </label>
+                      <NumField
+                        label={mandate.sizingMode === "PROPORTIONAL" ? "copy size %" : "fixed / trade $"}
+                        value={
+                          mandate.sizingMode === "PROPORTIONAL"
+                            ? Math.round(mandate.copyRatio * 100)
+                            : mandate.fixedNotionalUsd
+                        }
+                        onChange={(value) =>
+                          updateMandate(
+                            leader,
+                            mandate.sizingMode === "PROPORTIONAL"
+                              ? { copyRatio: value / 100 }
+                              : { fixedNotionalUsd: value },
+                          )
+                        }
+                      />
+                      <NumField
+                        label="leader / day $"
+                        value={mandate.maxDailyUsd}
+                        onChange={(value) => updateMandate(leader, { maxDailyUsd: value })}
+                      />
+                    </div>
+                    <div className="mt-2 flex flex-wrap gap-1">
+                      {TYPES.map((type) => {
+                        const enabled = mandate.allowOrderTypes.includes(type);
+                        return (
+                          <button
+                            key={type}
+                            type="button"
+                            onClick={() =>
+                              updateMandate(leader, {
+                                allowOrderTypes: toggle(mandate.allowOrderTypes, type),
+                              })
+                            }
+                            className={`rounded-full px-2 py-0.5 text-[10px] ${
+                              enabled ? "bg-[#e8c9a0]/15 text-gold" : "bg-white/5 text-mute"
+                            }`}
+                          >
+                            {type}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : null}
         </div>
       ) : null}
       <label className="mt-3 flex items-center gap-2 text-[12px] text-mute">
@@ -725,6 +1081,34 @@ function PolicyEditor({
           onChange={(e) => setDraft({ ...draft, allowModify: e.target.checked })}
         />
         clip oversize orders to my cap (MODIFY) instead of blocking
+      </label>
+      <label className="mt-3 flex items-center gap-2 text-[12px] text-mute">
+        <input
+          type="checkbox"
+          checked={draft.requireLeaderExecutionEvidence ?? false}
+          onChange={(e) =>
+            setDraft({ ...draft, requireLeaderExecutionEvidence: e.target.checked })
+          }
+        />
+        require a Flash order owned by the leader before copying
+      </label>
+      <label className="mt-3 flex items-center gap-2 text-[12px] text-mute">
+        <input
+          type="checkbox"
+          checked={draft.requireLeaderPlanQuality ?? false}
+          onChange={(e) => setDraft({ ...draft, requireLeaderPlanQuality: e.target.checked })}
+        />
+        require the selected minimum reward:risk instead of showing it as a caution
+      </label>
+      <label className="mt-3 flex items-center gap-2 text-[12px] text-mute">
+        <input
+          type="checkbox"
+          checked={draft.enableLeaderLossCircuitBreaker ?? false}
+          onChange={(e) =>
+            setDraft({ ...draft, enableLeaderLossCircuitBreaker: e.target.checked })
+          }
+        />
+        enable the evidence-backed leader loss breaker
       </label>
       <button
         type="button"

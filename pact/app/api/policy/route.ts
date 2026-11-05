@@ -17,16 +17,46 @@ export async function POST(req: Request) {
   if (!body.follower) {
     return Response.json({ error: "follower required" }, { status: 400 });
   }
+  const mandateLeaders = new Set((body.mandates ?? []).map((mandate) => mandate.leader.toLowerCase()));
+  const mandatesValid =
+    mandateLeaders.size === (body.mandates?.length ?? 0) &&
+    (body.mandates ?? []).every(
+      (mandate) =>
+        (body.follows ?? []).some((leader) => leader.toLowerCase() === mandate.leader.toLowerCase()) &&
+        (mandate.sizingMode === "PROPORTIONAL" || mandate.sizingMode === "FIXED") &&
+        mandate.copyRatio > 0 &&
+        mandate.copyRatio <= 1 &&
+        mandate.fixedNotionalUsd > 0 &&
+        mandate.maxDailyUsd >= body.minNotionalUsd &&
+        mandate.allowOrderTypes.length > 0 &&
+        (mandate.exitMode === "FOLLOWER_BRACKET" || mandate.exitMode === "MANUAL"),
+    );
   const bad =
     !(body.maxNotionalUsd > 0) ||
     !(body.maxDailyUsd >= body.maxNotionalUsd) ||
     !(body.minNotionalUsd >= 0) ||
+    !(body.copyRatio > 0 && body.copyRatio <= 1) ||
+    !(body.maxLeaderDailyUsd >= body.minNotionalUsd) ||
+    !(body.maxLeaderDailyRealizedLossUsd > 0) ||
+    !(body.maxAssetExposureUsd >= body.minNotionalUsd) ||
+    !(body.maxOpenPlans >= 1) ||
+    !(body.maxOpenPlansPerLeader >= 1) ||
+    !(Number(body.maxEntryDrift) >= 0) ||
+    !(Number(body.maxPriceImpact) >= 0) ||
+    !(Number(body.maxSlippage) >= 0) ||
+    !(body.minRewardRisk >= 1) ||
+    (body.follows?.length ?? 0) > 3 ||
+    (body.mandates?.length ?? 0) > 3 ||
+    !mandatesValid ||
     !body.allowChains?.length ||
     !body.allowOrderTypes?.length ||
     !body.allowSides?.length;
   if (bad) {
     return Response.json(
-      { error: "per-order cap > 0, daily cap >= per-order cap, and at least one chain, type and side" },
+      {
+        error:
+          "valid copy ratio, risk sleeves, up to three leaders, and at least one chain, type and side are required",
+      },
       { status: 400 },
     );
   }

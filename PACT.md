@@ -1,216 +1,167 @@
 # PACT
 
-**Copy a trader without giving up your keys or your risk limits.**
+**Social strategy execution with a follower-owned risk budget.**
 
-PACT is policy-aware copy trading built on [Definitive Flash](https://flash.definitive.fi/docs). A leader publishes an order. Each follower's own rules decide whether to copy it, shrink it, or refuse it. If the order is allowed, the follower signs it from their own wallet. Nobody else can move their money.
+PACT is a non-custodial copy-execution MVP built on [Definitive Flash](https://flash.definitive.fi/docs). A leader publishes a structured plan. Each follower explicitly chooses leaders, applies their own policy, and signs only the Flash orders that fit it. PACT never receives a private key or custody of the follower's funds.
 
-Built for ETHGlobal Mumbai 2026 (5–7 Nov). Submitted on the Continuity track: the app was started before kickoff, and new work is committed during the event.
+Built for ETHGlobal Mumbai 2026.
 
----
+## The Product Thesis
 
-## The problem
+People follow traders because they want access to a repeatable strategy, not merely a social feed. But a leader's account size, risk tolerance, timing, and open exposure are not the follower's.
 
-Copy trading usually forces a bad choice:
+PACT treats copying as a **portfolio allocation decision**:
 
-- **Hand over custody.** Deposit into a vault or give a bot your key. The manager, or anyone who compromises the bot, can act with your funds.
-- **Copy blindly.** Mirror a leader's trade at whatever size and risk they chose, including a $500 market order on an account that was only ever comfortable with $30.
+1. Leaders publish a plan with a thesis, reference entry, invalidation, stop, target, entry expiry, and follower capacity.
+2. Followers choose up to three leaders and configure a mandate for each: proportional or fixed sizing, daily sleeve, allowed order types, and follower-managed exit behavior.
+3. For every proposed trade, PACT returns `COPY`, `SCALE`, `WAIT`, `DECLINE`, or `REVIEW`.
+4. The follower re-checks the Flash typed data in their browser and signs with their own wallet.
+5. Definitive Flash executes the order. Eligible buy entries can attach a Flash TP/SL bracket.
 
-Your personal risk limits are rarely enforced at the moment money moves, and the thing that enforces them is rarely something you can verify.
+PACT does **not** predict returns, rank traders by an invented alpha score, or guarantee that a leader's trade is profitable.
 
-## What PACT does
+## Why It Matters
 
-1. A **leader** publishes a Flash-shaped order: TWAP, limit, market, take-profit or stop-loss, on Base or Arc.
-2. Each **follower** has a personal policy: max per order, daily cap, allowed chains, order types, sides, slippage and price impact.
-3. A deterministic policy engine returns one of three verdicts per follower:
-   - **ALLOW**: within limits.
-   - **MODIFY**: too big, so it is clipped to the follower's cap and daily room instead of refused.
-   - **BLOCK**: outside the rules. The sign button is locked and nothing is ever sent to Flash.
-4. On ALLOW or MODIFY, a **wallet guard** re-checks everything the follower is about to sign, in the follower's browser, before any wallet prompt.
-5. The **follower signs** with their own wallet. Flash executes onchain, non-custodially.
+Centralized copy-trading products commonly offer allocation, per-trader limits, and copy-level stop-loss controls. PACT's distinction is that the follower's constraints sit before the signature that enables execution:
 
-The central design rule: **policy gates the only signature Flash will honor.** Funds stay in the follower's wallet. The server never holds a key that can move them.
+- no exported private key;
+- no server-side trading key;
+- no custodian path;
+- no blind replication beyond the follower's configured sleeves.
 
-### The demo that explains it in five seconds
+The product is designed for a follower who values participation in a strategy **and** wants a hard, inspectable limit on what any leader can consume.
 
-One leader trade, three followers, three outcomes. The floor page has a panel called "same trade, your rules." A leader posts a $60 TWAP buy:
+## What Is Built
 
-| Desk | Policy | Verdict | Result |
-|---|---|---|---|
-| steady | $30 per order, $50 daily | **MODIFY** | clipped to $30 |
-| bold | $100 per order, $200 daily | **ALLOW** | signs $60 |
-| careful | $15 per order, limit orders only | **BLOCK** | sign locked, nothing sent to Flash |
+### Leader plans
 
-Two sliders (the leader's trade size and each desk's cap) rerun the real policy engine live in the browser, so anyone can watch a verdict flip. The sliders are a local what-if and never change saved policies.
+Leader plans require:
 
----
+- thesis and invalidation;
+- reference entry, stop-loss, and take-profit;
+- a reward:risk assessment, with `1.5R` available as an opt-in follower gate;
+- entry window and separate protection expiry;
+- per-follower capacity;
+- optional Flash order ID evidence.
 
-## Features
+Long plans must follow `stop < entry < target`; short plans must follow `target < entry < stop`. Structurally incomplete plans are rejected before publication. A low reward:risk plan is marked as a caution and can be refused if the follower enables that preference.
 
-**Leader (`/leader`)**
-- Publish TWAP, limit, market, take-profit or stop-loss on Base or Arc.
-- Take-profit and stop-loss are sells of the target token with a price trigger, as Flash defines them.
+### Follower policy
 
-**Follower (`/follower`)**
-- Edit your own limits: per-order cap, daily cap, chains, order types, sides, and which leaders to copy.
-- Choose whether oversize orders are clipped (MODIFY) or blocked.
-- See the wallet guard checklist before signing.
-- A fill timeline: Flash quote, wallet guard, approve allowance, sign Permit2, sign order, submit. Then live order status, TWAP slice progress, and each fill with an explorer link.
-- Cancel a resting order. This is a gasless message signature in the wallet.
+The default demo policy on Base is intentionally conservative:
 
-**Floor (`/`)**
-- Remaining daily cap, blocked notional, Flash health and the live WETH price.
-- The three-desk what-if panel.
-- A tape of every decision with filters.
+| Control | Default |
+| --- | ---: |
+| Selected leaders | Up to 3 |
+| Default copy mandate | 25% proportional, Flash TP/SL exit |
+| Per-order maximum | $30 |
+| Daily copy budget | $50 |
+| Per-leader daily sleeve | $25 |
+| Per-leader realized-loss breaker | $10 / day, off until enabled |
+| Same-asset / same-side exposure | $35 |
+| Open plans | 3 total, 1 per leader |
+| Allowed entries | TWAP and limit buys |
+| Max entry drift | 1% |
+| Max quote price impact | 0.5% |
+| Max slippage | 1% |
 
-**History (`/history`)**
-- An audit trail: every decision with its verdict, reasons, and a hash of the proposal and of the policy that judged it.
-- Fills with explorer links, and an export to JSON.
-- The hashes show which rules applied. They are not proof that a trade was safe and do not replace the follower's signature.
+Without a leader-specific mandate, sizing follows:
 
----
+```text
+requested = leader notional × copy multiplier
+approved = min(
+  requested,
+  per-order cap,
+  remaining daily budget,
+  remaining per-leader sleeve,
+  remaining same-asset exposure,
+  plan capacity
+)
+```
 
-## How it works
+Hard rule failures—unsupported chain, pair, type, side, expired plan, missing required invalidation, structurally invalid plan, or optional evidence requirement—refuse the trade before a wallet prompt. A reward:risk below the follower's preference is a caution unless that follower enables the stricter gate. A size-only overage can be scaled when the follower enables it.
 
-### Policy engine
+Each selected leader can override the default with a fixed-dollar or proportional copy size, a leader-specific daily sleeve, a narrower set of permitted order types, and one of two current follower exit modes: **Flash TP/SL bracket** or **manual exit**. PACT does not yet mirror a leader's exit as an executable action, so it does not claim that mode is available.
 
-`decide()` is a pure function in `lib/policy.ts`. It checks, in order: chain, pair, order type, side, slippage and price impact, then size and daily cap.
+PACT also has an opt-in per-leader realized-loss circuit breaker. When enabled and recorded
+realized losses on closed PACT receipts reach the follower's daily threshold, new proposals
+from that leader return `WAIT`. Flash currently provides order and fill information rather
+than account-level P&L, so this breaker only activates when a trusted P&L evidence source
+records the receipt; PACT does not fabricate P&L from an open position.
 
-- **Hard rules** (chain, pair, order type, side, slippage) produce BLOCK, and any size or daily-cap reasons are listed alongside.
-- **Soft rules** (size over the per-order cap, or over the remaining daily room) produce MODIFY if the follower allows clipping and the clipped size is above their minimum. Otherwise they produce BLOCK.
-- Reason codes: `CHAIN_NOT_ALLOWED`, `PAIR_NOT_ALLOWED`, `ORDER_TYPE_NOT_ALLOWED`, `SIDE_NOT_ALLOWED`, `SLIPPAGE_TOO_HIGH`, `SIZE_EXCEEDS_MAX`, `DAILY_CAP`, `PRICE_UNAVAILABLE`.
-- Sells are sized in the target token, so their USD notional uses the live Flash price. **If the price can't be fetched, the order is blocked** rather than guessed.
+### Multi-leader simulation
 
-### Wallet guard (the answer to "what if the server lies?")
+The Floor's **simulated portfolio run** uses persisted demo data and the same policy function as the real copy path:
 
-Flash never reads PACT's policy, and a server could in theory return a different order than the one the policy approved. So `lib/guard.ts` runs in the follower's browser on the raw payloads Flash returned, before any wallet prompt. It also runs on the server, and a quote that fails is never stored or served.
+- Leader one proposes an $80 TWAP: follower requests $20 and can copy it.
+- Leader two proposes a $120 limit: follower requests $30 but is scaled to the $25 leader sleeve.
+- Leader three proposes a $40 market order: follower requests $10 but is declined because market entries are not enabled.
 
-It refuses to sign unless all of the following hold:
+This is a policy simulation only. It is not a claim that orders were sent or that a strategy made money.
 
-- The signing domain is the right chain and the verifying contract is the Flash contract.
-- The swapper (funds source) and the recipient (proceeds) are both the follower.
-- The from and to tokens match the proposal, and the direction matches buy or sell.
-- `fromAmount` is at most the policy-approved size. The Permit2 permit amount is at most that size plus the follower's other open orders for the same token, because Flash sizes the permit to the new order plus whatever is still unfilled.
-- The Permit2 spender is the Flash contract, the permit is for the spent token, and the permit contract is the canonical Permit2.
-- The approve call goes only to the spent token, only for Permit2.
-- The deadline is in the future.
+### Definitive Flash execution
 
-The guard has 19 unit tests that simulate a lying server: an inflated amount, redirected proceeds, a swapped token, the wrong spender, the wrong chain and an expired deadline. A browser test also tampers with a live quote by inflating the amount 20 times and confirms the wallet is never asked to sign anything.
+PACT integrates:
 
-### Signing flow
+- Flash quote and order APIs;
+- Flash order-status polling and cancellation;
+- EIP-712 entry order signing;
+- Permit2 signing and minimal approval transactions;
+- browser-side typed-data guard before signing;
+- quote-time entry-drift and estimated-price-impact checks;
+- attached Flash TP/SL bracket signing for eligible buy entries.
 
-1. The server asks Flash for a quote with `forceMinimalAllowance` and Permit2, using the follower as the funder.
-2. The server guard checks the quote. The follower's browser then runs its own guard on the same payloads.
-3. If Flash returns an `approveTx`, the follower broadcasts it and waits for the receipt.
-4. The follower signs the Permit2 permit and the Flash order (EIP-712).
-5. The server submits the order to Flash with the follower's signatures.
-6. The page polls the order until it fills or is cancelled.
+Base is the primary integration. Arc is represented in the app configuration but has not been live-tested.
 
-### Flash integration
+## Trust and Security Model
 
-- Order types used: market, limit, TWAP, take-profit, stop-loss.
-- Chains: Base (8453) and Arc (5042). Arc TWAP quotes were checked against live Flash.
-- Live status uses `GET /orders/{id}?funderAddress=…`, which returns `{ order, fills }`.
-- Cancel signs the exact message `Definitive Flash v1 — Cancel Order\nOrder: <id>` with EIP-191.
-- Flash is mainnet-only, so a real fill uses real funds.
+- A follower signs every approval, Permit2 message, entry order, and bracket order from their own wallet.
+- PACT does not export, store, or request a private key.
+- The policy is evaluated server-side for the product decision and the raw signing payload is re-checked client-side before the wallet prompt.
+- Pasting a leader Flash order ID can verify that Flash recognizes an order for the leader wallet. It does **not** yet prove that the order exactly matches the published PACT plan.
 
----
+## Current Limits and Honest Claims
 
-## Security model
+PACT is hackathon MVP software, not a production investment product.
 
-| Actor | Trust | What they can do |
-|---|---|---|
-| Leader | Untrusted | Post an intent. Cannot spend a follower's funds. |
-| AI agent or bot | Untrusted | Propose a copy. Policy runs before any quote or signature. |
-| Policy engine | Trusted | ALLOW, MODIFY or BLOCK. |
-| Follower wallet | The signer | Only this key spends. |
-| PACT server | Semi-trusted | Holds the Flash API key. Refuses BLOCK. Can submit a signature it already has, but cannot create one. |
-| Wallet guard | Independent check | Re-verifies every payload in the browser, without trusting the server. |
-| Flash | Executor | Honors the signed order. Does not read policy. |
+- No audit has been completed.
+- The current store is local demo storage, not durable production infrastructure.
+- There is no successful real follower order/fill and attached bracket recorded yet; the live quote and full signature flow have been exercised with Flash, but mock-wallet order submission is expected to fail signature verification.
+- There is no public performance leaderboard, fake AI signal score, social chat, or verified leader track record.
+- World ID, Arkiv/Swarm, 1inch, Uniswap, and Chainlink are research candidates, not current integrations.
 
-- PACT never stores a follower private key.
-- A BLOCK verdict never reaches Flash's quote or order endpoints, and the server returns 403 on both.
-- `/order` also returns 403 if the funder is not the proposal's follower.
+## Demo Flow
 
-### Honest limits
+1. Open the Floor and select **load demo tape**.
+2. Show **same trade, your rules**: one leader trade produces different follower outcomes.
+3. Show **one follower, three leaders, one risk budget**: one copy, one scaled copy, one type-gated refusal.
+4. Publish a disciplined leader plan from **Lead**.
+5. In **Follow**, select leaders and set the multiplier, portfolio budget, leader sleeve, exposure, and execution thresholds.
+6. Request a Flash quote, inspect the guard steps, and sign only from the follower wallet.
 
-- **The ERC-20 approval to Permit2 is max uint256.** That is what Flash's quote returns. The follower's real spend limit is the signed Permit2 amount, which is sized to the order and expires in about 24 hours. The guard shows this as a warning.
-- **The guard pins the Flash contract address** and checks what is signed, not what Flash does afterward.
-- **TWAP duration and triggers sit offchain** and are not part of the EIP-712 signature. Flash honors the signature, not PACT's policy.
-- **Trigger orders last a very long time by design.** The guard warns, and the order can be cancelled.
-- **Cancelling in the Definitive admin is a central kill switch**, not follower safety.
-- **PACT does not evaluate whether a strategy is any good.** Copy trading does not make a strategy profitable.
-- **Demo state is a local JSON file.** It is not production persistence.
-
----
-
-## Tech stack
-
-- Next.js 16 (App Router), React 19, TypeScript, Tailwind CSS 4
-- wagmi 3 and viem 2 for wallet, signing and Base/Arc
-- Definitive Flash REST API
-- Vitest for unit tests, Playwright (driving Chromium) for the browser test
-
-## Verification
-
-- **31 unit tests:** 6 policy cases, 19 wallet-guard cases (including permits that cover open orders and permit expiry), 6 Flash contract cases (order status shape, required funder address, exact cancel message bytes, trigger orders, end times on resting orders).
-- **10-check browser test** with a mock wallet: a throwaway key signs for real against the live Flash quote. It covers connecting, the guard panel, the approve, Permit2 and order signing sequence, a tampered quote being refused, and a BLOCK staying locked.
-- **Live checks against Flash:** health, quotes on Base and Arc, a priced take-profit, and BLOCK refusals at `/quote` and `/order`.
-- Type check and lint are clean.
-
-### Not yet proven
-
-- **A real filled order.** Flash rejected the throwaway test wallet's order with `signature verification failed`. A plain script following Flash's own documented flow, with no PACT code, got the identical error, so the cause looks like the wallet holding no funds. A funded run on Base is the remaining step, and it is the only way to prove live order status, TWAP slice progress, fills and cancel against a real order.
-- **Arc settlement.** Quotes work, but no Arc fill has been done.
-
----
-
-## Run it
+## Local Development
 
 ```bash
 cd pact
-cp .env.example .env.local     # add your Flash integrator key
 npm install
-npm test                       # unit tests
-npm run dev                    # http://localhost:3000
-npm run e2e                    # browser test, with the dev server running
+cp .env.example .env.local
+npm run dev
 ```
 
-Load the demo without any wallet: click **load demo tape** on the floor page, or `POST /api/demo`. For a real fill the follower needs a Base wallet with a little ETH for gas and some USDC.
+Required for live Flash requests:
 
-## Project layout
-
-```
-pact/
-  app/               pages: floor, leader, follower, history; API routes
-  components/        Floor, Desks, LeadTicket, FollowDesk, History, charts
-  lib/
-    policy.ts        decide(): ALLOW / MODIFY / BLOCK
-    guard.ts         wallet-side signing guard
-    flash.ts         Flash REST client
-    chains.ts        Base and Arc config, Permit2 and Flash contract addresses
-    store.ts         local demo store
-  e2e/               mock-wallet browser test
-specs/               policy test vectors and data model
-guides/ docs/        research and integration notes
+```text
+FLASH_API_KEY=...
 ```
 
-## Event context
+Validation:
 
-- **Event:** ETHGlobal Mumbai, 5–7 Nov 2026. Submissions close Sat 7 Nov at 09:00 IST.
-- **Target sponsor:** Definitive (Flash advanced orders in a social app).
-- **Track:** Continuity.
+```bash
+npm test
+npm run lint
+npx tsc --noEmit
+```
 
-## What is next
+## Before Using Real Funds
 
-- A funded Base fill with an explorer link and a recorded demo.
-- A cross-check of the Flash quote against an independent price source, so a bad quote is caught before signing.
-- A human approval step for large orders.
-- A leader profile and follow flow, and policy presets.
-
-## AI attribution
-
-This project was built with AI coding assistants, including Grok Build and Claude Code. The policy cases, wallet guard, Flash client and UI are in this repo. Flash itself is Definitive's.
-
-## Licence and status
-
-Hackathon prototype. Not audited. Do not use with funds you cannot afford to lose.
+Use only a dedicated plain EOA, Base mainnet, a small USDC balance (roughly $5–$10), and enough Base ETH for approvals. Confirm each prompt, retain the Flash order ID, and inspect entry plus bracket status before describing PACT as having completed a mainnet order.

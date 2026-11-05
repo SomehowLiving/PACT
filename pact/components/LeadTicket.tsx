@@ -17,6 +17,20 @@ export function LeadTicket() {
   const [chain, setChain] = useState<Chain>("base");
   const [limitPrice, setLimitPrice] = useState("");
   const [triggerPrice, setTriggerPrice] = useState("");
+  const [title, setTitle] = useState("ETH accumulation pact");
+  const [thesis, setThesis] = useState(
+    "Accumulate gradually while the entry window remains valid.",
+  );
+  const [invalidation, setInvalidation] = useState(
+    "Do not chase outside the stated entry window.",
+  );
+  const [capacity, setCapacity] = useState("60");
+  const [expiryMinutes, setExpiryMinutes] = useState("240");
+  const [entryReferencePrice, setEntryReferencePrice] = useState("2500");
+  const [stopLossPrice, setStopLossPrice] = useState("2450");
+  const [takeProfitPrice, setTakeProfitPrice] = useState("2600");
+  const [leaderFlashOrderId, setLeaderFlashOrderId] = useState("");
+  const [protectionHours, setProtectionHours] = useState("24");
   const exit = orderType === "take-profit" || orderType === "stop-loss";
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -35,6 +49,20 @@ export function LeadTicket() {
     try {
       const body = {
         leader: address,
+        title,
+        thesis,
+        invalidation,
+        maxFollowerNotionalUsd: Number(capacity),
+        entryReferencePrice: entryReferencePrice || undefined,
+        stopLossPrice: stopLossPrice || undefined,
+        takeProfitPrice: takeProfitPrice || undefined,
+        protectionExpiresAt: new Date(
+          Date.now() + Number(protectionHours || 0) * 60 * 60 * 1_000,
+        ).toISOString(),
+        leaderFlashOrderId: leaderFlashOrderId || undefined,
+        expiresAt: new Date(
+          Date.now() + Number(expiryMinutes || 0) * 60 * 1_000,
+        ).toISOString(),
         chain,
         side: exit ? "sell" : side,
         limitNotionalPrice:
@@ -99,6 +127,23 @@ export function LeadTicket() {
 
         <div className="mt-8 grid gap-4">
           <label className="text-[12px] text-mute">
+            pact plan title
+            <input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              className="mt-1 w-full rounded-2xl bg-black/30 px-4 py-3 hairline text-ink outline-none"
+            />
+          </label>
+          <label className="text-[12px] text-mute">
+            thesis
+            <textarea
+              value={thesis}
+              onChange={(e) => setThesis(e.target.value)}
+              rows={2}
+              className="mt-1 w-full resize-none rounded-2xl bg-black/30 px-4 py-3 hairline text-ink outline-none"
+            />
+          </label>
+          <label className="text-[12px] text-mute">
             pair
             <div className="mt-1 flex items-center justify-between rounded-2xl bg-black/30 px-4 py-3 hairline text-ink">
               <span>WETH / USDC</span>
@@ -150,6 +195,46 @@ export function LeadTicket() {
             </label>
           ) : null}
 
+          {!exit && orderType !== "limit" ? (
+            <label className="text-[12px] text-mute">
+              reference entry (USD per WETH)
+              <input
+                value={entryReferencePrice}
+                onChange={(e) => setEntryReferencePrice(e.target.value)}
+                placeholder="2500"
+                className="mt-1 w-full rounded-2xl bg-black/30 px-4 py-3 hairline text-ink outline-none"
+              />
+              <span className="mt-1 block text-[10px] text-mute">
+                PACT waits if the follower’s Flash quote drifts beyond their entry band.
+              </span>
+            </label>
+          ) : null}
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className="text-[12px] text-mute">
+              plan stop (USD per WETH)
+              <input
+                value={stopLossPrice}
+                onChange={(e) => setStopLossPrice(e.target.value)}
+                placeholder={side === "buy" && !exit ? "2450" : "2550"}
+                className="mt-1 w-full rounded-2xl bg-black/30 px-4 py-3 hairline text-ink outline-none"
+              />
+            </label>
+            <label className="text-[12px] text-mute">
+              plan target (USD per WETH)
+              <input
+                value={takeProfitPrice}
+                onChange={(e) => setTakeProfitPrice(e.target.value)}
+                placeholder={side === "buy" && !exit ? "2600" : "2400"}
+                className="mt-1 w-full rounded-2xl bg-black/30 px-4 py-3 hairline text-ink outline-none"
+              />
+            </label>
+          </div>
+          <p className="-mt-2 text-[10px] text-mute">
+            PACT requires a valid entry, stop, target, and at least 1.5R before followers can
+            receive this plan. These are plan terms, not live Flash brackets yet.
+          </p>
+
           {exit ? (
             <label className="text-[12px] text-mute">
               trigger price (USD per WETH) —{" "}
@@ -174,6 +259,58 @@ export function LeadTicket() {
             </label>
           ) : null}
 
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className="text-[12px] text-mute">
+              plan capacity (USDC per follower)
+              <input
+                value={capacity}
+                onChange={(e) => setCapacity(e.target.value)}
+                inputMode="decimal"
+                className="mt-1 w-full rounded-2xl bg-black/30 px-4 py-3 hairline text-ink outline-none"
+              />
+            </label>
+            <label className="text-[12px] text-mute">
+              copy window (minutes)
+              <input
+                value={expiryMinutes}
+                onChange={(e) => setExpiryMinutes(e.target.value)}
+                inputMode="numeric"
+                className="mt-1 w-full rounded-2xl bg-black/30 px-4 py-3 hairline text-ink outline-none"
+              />
+            </label>
+            <label className="text-[12px] text-mute">
+              Flash protection (hours)
+              <input
+                value={protectionHours}
+                onChange={(e) => setProtectionHours(e.target.value)}
+                inputMode="numeric"
+                className="mt-1 w-full rounded-2xl bg-black/30 px-4 py-3 hairline text-ink outline-none"
+              />
+            </label>
+          </div>
+          <label className="text-[12px] text-mute">
+            invalidation / protection
+            <textarea
+              value={invalidation}
+              onChange={(e) => setInvalidation(e.target.value)}
+              rows={2}
+              className="mt-1 w-full resize-none rounded-2xl bg-black/30 px-4 py-3 hairline text-ink outline-none"
+            />
+          </label>
+          <label className="text-[12px] text-mute">
+            your Flash order ID (optional proof)
+            <input
+              value={leaderFlashOrderId}
+              onChange={(e) => setLeaderFlashOrderId(e.target.value)}
+              placeholder="Paste an existing Flash order ID"
+              className="mt-1 w-full rounded-2xl bg-black/30 px-4 py-3 hairline text-ink outline-none"
+            />
+            <span className="mt-1 block text-[10px] text-mute">
+              PACT verifies that Flash recognizes this order for your wallet. It does not yet
+              prove every plan term matches the order.
+            </span>
+          </label>
+
           <button
             type="button"
             disabled={busy}
@@ -195,18 +332,29 @@ export function LeadTicket() {
             state?.strategies.map((s) => (
               <div key={s.id} className="rounded-2xl bg-black/25 p-4 hairline">
                 <div className="flex items-center justify-between">
-                  <span className="text-sm">
-                    {s.orderType} {s.side} · {s.chain}
-                  </span>
+                  <span className="text-sm">{s.title}</span>
                   <span className="num text-gold">
                     {s.side === "buy" ? usd(Number(s.qty)) : `${s.qty} WETH`}
                   </span>
                 </div>
                 <div className="mt-1 font-mono text-[11px] text-mute">
-                  {shortAddr(s.leader)}
+                  {s.orderType} {s.side} · {s.chain} · {shortAddr(s.leader)}
+                  {s.maxFollowerNotionalUsd ? ` · cap ${usd(s.maxFollowerNotionalUsd)}` : ""}
+                </div>
+                <p className="mt-2 text-[12px] text-mute">{s.thesis}</p>
+                <div className="mt-2 font-mono text-[11px] text-mute">
                   {s.durationSeconds ? ` · ${s.durationSeconds}s` : ""}
                   {s.triggers?.[0] ? ` · trigger $${s.triggers[0].notionalPrice}` : ""}
                   {s.limitNotionalPrice ? ` · limit $${s.limitNotionalPrice}` : ""}
+                  {s.entryReferencePrice ? ` · entry $${s.entryReferencePrice}` : ""}
+                  {s.stopLossPrice ? ` · stop $${s.stopLossPrice}` : ""}
+                  {s.takeProfitPrice ? ` · target $${s.takeProfitPrice}` : ""}
+                  {s.protectionExpiresAt ? " · Flash bracket requested" : ""}
+                </div>
+                <div className="mt-2 text-[10px] uppercase tracking-widest text-gold">
+                  {(s.leaderPlanGrade ?? "INCOMPLETE").toLowerCase()} plan
+                  {" · "}
+                  {(s.leaderEvidenceStatus ?? "UNVERIFIED").toLowerCase()} execution
                 </div>
               </div>
             ))

@@ -15,6 +15,8 @@ export async function POST(req: Request) {
     proposalId: string;
     userSignature: string;
     evmPermitSignature?: string;
+    attachedBracketSignature?: string;
+    attachedBracketPermitSignature?: string;
     funderAddress?: `0x${string}`;
   };
 
@@ -43,6 +45,9 @@ export async function POST(req: Request) {
   if (!quote?.quoteId || !quote.orderTypedData) {
     return Response.json({ error: "quote first" }, { status: 400 });
   }
+  if (quote.attachedBracket && !body.attachedBracketSignature) {
+    return Response.json({ error: "attached bracket signature required" }, { status: 400 });
+  }
 
   try {
     const order = await postOrder({
@@ -59,6 +64,17 @@ export async function POST(req: Request) {
       evmOrderTypedData: quote.orderTypedData,
       evmPermitTypedData: quote.permitTypedData,
       evmPermitSignature: body.evmPermitSignature,
+      attachedBracket: quote.attachedBracket
+        ? {
+            ...quote.attachedBracket.bracket,
+            userSignature: body.attachedBracketSignature!,
+            salt: quote.attachedBracket.salt,
+            deadline: quote.attachedBracket.deadline,
+            signedMaxFromAmount: quote.attachedBracket.signedMaxFromAmount,
+            evmPermitTypedData: quote.attachedBracket.permitTypedData,
+            evmPermitSignature: body.attachedBracketPermitSignature,
+          }
+        : undefined,
       limitNotionalPrice: proposal.limitNotionalPrice,
       triggers: proposal.triggers,
       ...(Number(INTEGRATOR_FEE_BPS) > 0

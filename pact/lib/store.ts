@@ -4,12 +4,13 @@ import { tokenDecimals } from "./chains";
 import { defaultPolicy, USDC, WETH } from "./constants";
 import { toUnits } from "./guard";
 import { sha256Json } from "./hash";
-import { decide } from "./policy";
+import { assessLeaderPlan, decide } from "./policy";
 import { assetPrice } from "./price";
 import type {
   AuditLog,
   Decision,
   DeskState,
+  LeaderMandate,
   Policy,
   Proposal,
   Receipt,
@@ -19,7 +20,7 @@ import type {
 
 type Memory = DeskState;
 
-const FILE = join(process.cwd(), ".data", "store.json");
+const FILE = process.env.PACT_STORE_FILE ?? join(process.cwd(), ".data", "store.json");
 const g = globalThis as unknown as { __pact?: Memory };
 
 function empty(): Memory {
@@ -52,7 +53,10 @@ function load(): Memory {
 }
 
 function mem(): Memory {
-  if (!g.__pact) g.__pact = load();
+  if (!g.__pact) {
+    g.__pact = load();
+    g.__pact.policies = g.__pact.policies.map(normalizePolicy);
+  }
   return g.__pact;
 }
 
@@ -68,6 +72,12 @@ export function resetStore() {
 
 export const DEMO_LEADER =
   "0x1111111111111111111111111111111111111111" as const;
+export const DEMO_PULLBACK_LEADER =
+  "0x5555555555555555555555555555555555555555" as const;
+export const DEMO_CHASE_LEADER =
+  "0x6666666666666666666666666666666666666666" as const;
+export const DEMO_PORTFOLIO_FOLLOWER =
+  "0x7777777777777777777777777777777777777777" as const;
 export const DEMO_FOLLOWER =
   "0x2222222222222222222222222222222222222222" as const;
 export const DEMO_BOLD = "0x3333333333333333333333333333333333333333" as const;
@@ -76,7 +86,11 @@ export const DEMO_CAREFUL =
 
 export function followsLeader(policy: Policy, leader: string) {
   const f = policy.follows;
-  return !f?.length || f.some((l) => l.toLowerCase() === leader.toLowerCase());
+  return !!f?.some((l) => l.toLowerCase() === leader.toLowerCase());
+}
+
+function mandateFor(policy: Policy, leader: string): LeaderMandate | undefined {
+  return policy.mandates?.find((mandate) => mandate.leader.toLowerCase() === leader.toLowerCase());
 }
 
 export async function proposeToAll(strategyId: string) {
@@ -91,12 +105,14 @@ export async function proposeToAll(strategyId: string) {
   return out;
 }
 
-// Three desks with different risk appetites. One leader trade, three verdicts.
-function seedDesks(steady: `0x${string}`) {
-  upsertPolicy({ ...defaultPolicy(steady), label: "steady" });
+// Three desks with different risk appetites. The portfolio desk is seeded separately
+// so its multi-leader thresholds are not affected by the one-trade desk comparison.
+function seedDesks(steady: `0x${string}`, leader: `0x${string}`) {
+  upsertPolicy({ ...defaultPolicy(steady), label: "steady", follows: [leader] });
   upsertPolicy({
     ...defaultPolicy(DEMO_BOLD),
     label: "bold",
+    follows: [leader],
     maxNotionalUsd: 100,
     maxDailyUsd: 200,
     allowOrderTypes: ["twap", "limit", "take-profit", "stop-loss"],
@@ -105,6 +121,7 @@ function seedDesks(steady: `0x${string}`) {
   upsertPolicy({
     ...defaultPolicy(DEMO_CAREFUL),
     label: "careful",
+    follows: [leader],
     maxNotionalUsd: 15,
     maxDailyUsd: 30,
     allowOrderTypes: ["limit"],
@@ -118,27 +135,82 @@ export async function seedDemo(opts?: {
   resetStore();
   const leader = opts?.leader ?? DEMO_LEADER;
   const follower = opts?.follower ?? DEMO_FOLLOWER;
-  seedDesks(follower);
+  const pullbackLeader = DEMO_PULLBACK_LEADER;
+  const chaseLeader = DEMO_CHASE_LEADER;
+  const portfolioFollower = DEMO_PORTFOLIO_FOLLOWER;
+  seedDesks(follower, leader);
   const base = { leader, chain: "base" as const, targetAsset: WETH, contraAsset: USDC, side: "buy" as const };
-  const twap = addStrategy({ ...base, orderType: "twap", qty: "25", durationSeconds: 600 });
-  const market = addStrategy({ ...base, orderType: "market", qty: "500" });
+  const plan = {
+    title: "ETH accumulation pact",
+    thesis: "Accumulate gradually while the entry window remains valid.",
+    expiresAt: new Date(Date.now() + 4 * 60 * 60 * 1_000).toISOString(),
+    invalidation: "Do not chase outside the stated entry window.",
+    maxFollowerNotionalUsd: 60,
+    entryReferencePrice: "2500",
+    stopLossPrice: "2450",
+    takeProfitPrice: "2600",
+    protectionExpiresAt: new Date(Date.now() + 24 * 60 * 60 * 1_000).toISOString(),
+  };
+  const twap = addStrategy({ ...base, ...plan, orderType: "twap", qty: "25", durationSeconds: 600 });
+  const market = addStrategy({ ...base, ...plan, orderType: "market", qty: "500" });
   const allow = await createProposal(twap.id, follower);
   const block = await createProposal(market.id, follower);
   // The headline trade: one TWAP $60, copied by every desk.
-  const split = addStrategy({ ...base, orderType: "twap", qty: "60", durationSeconds: 600 });
+  const split = addStrategy({ ...base, ...plan, orderType: "twap", qty: "60", durationSeconds: 600 });
   const desks = await proposeToAll(split.id);
-  return { twap, market, allow, block, split, desks };
+
+  upsertPolicy({
+    ...defaultPolicy(portfolioFollower),
+    label: "portfolio",
+    follows: [leader, pullbackLeader, chaseLeader],
+  });
+
+  // A realistic follower does not allocate independently to every influencer. This compact
+  // basket tests a shared daily budget, a per-leader sleeve, and an order-type refusal.
+  const trend = addStrategy({
+    ...base,
+    ...plan,
+    title: "Trend entry · leader one",
+    orderType: "twap",
+    qty: "80",
+    durationSeconds: 600,
+  });
+  const pullback = addStrategy({
+    ...base,
+    ...plan,
+    leader: pullbackLeader,
+    title: "Pullback entry · leader two",
+    orderType: "limit",
+    qty: "120",
+    limitNotionalPrice: "2500",
+  });
+  const chase = addStrategy({
+    ...base,
+    ...plan,
+    leader: chaseLeader,
+    title: "Late market chase · leader three",
+    orderType: "market",
+    qty: "40",
+  });
+  const portfolio = [
+    await createProposal(trend.id, portfolioFollower),
+    await createProposal(pullback.id, portfolioFollower),
+    await createProposal(chase.id, portfolioFollower),
+  ];
+
+  return { twap, market, allow, block, split, desks, portfolio };
 }
 
 export function upsertPolicy(policy: Policy) {
   const m = mem();
+  const normalized = normalizePolicy(policy);
   const i = m.policies.findIndex(
-    (p) => p.follower.toLowerCase() === policy.follower.toLowerCase(),
+    (p) => p.follower.toLowerCase() === normalized.follower.toLowerCase(),
   );
-  if (i >= 0) m.policies[i] = policy;
-  else m.policies.push(policy);
+  if (i >= 0) m.policies[i] = normalized;
+  else m.policies.push(normalized);
   persist(m);
-  return policy;
+  return normalized;
 }
 
 export function policyFor(follower: `0x${string}`) {
@@ -146,15 +218,38 @@ export function policyFor(follower: `0x${string}`) {
   const found = m.policies.find(
     (p) => p.follower.toLowerCase() === follower.toLowerCase(),
   );
-  if (found) return found;
+  if (found) return upsertPolicy(found);
   return upsertPolicy(defaultPolicy(follower));
 }
 
-export function addStrategy(input: Omit<Strategy, "id" | "createdAt">) {
+function normalizePolicy(policy: Policy): Policy {
+  const defaults = defaultPolicy(policy.follower);
+  return {
+    ...defaults,
+    ...policy,
+    allowChains: policy.allowChains?.length ? policy.allowChains : defaults.allowChains,
+    follows: policy.follows ?? [],
+    mandates: (policy.mandates ?? []).filter((mandate) =>
+      (policy.follows ?? []).some((leader) => leader.toLowerCase() === mandate.leader.toLowerCase()),
+    ),
+  };
+}
+
+export function addStrategy(
+  input: Omit<
+    Strategy,
+    "id" | "createdAt" | "leaderPlanGrade" | "leaderPlanReasons" | "leaderEvidenceStatus"
+  >,
+  leaderEvidenceStatus: Strategy["leaderEvidenceStatus"] = "UNVERIFIED",
+) {
+  const assessment = assessLeaderPlan(input);
   const strategy: Strategy = {
     ...input,
     id: crypto.randomUUID(),
     createdAt: new Date().toISOString(),
+    leaderPlanGrade: assessment.grade,
+    leaderPlanReasons: assessment.reasons,
+    leaderEvidenceStatus,
   };
   const m = mem();
   m.strategies.unshift(strategy);
@@ -187,6 +282,96 @@ export function dailySpent(follower: `0x${string}`) {
     .reduce((sum, r) => sum + r.notionalUsd, 0);
 }
 
+function isOpenProposal(proposal: Proposal) {
+  const decision = mem().decisions[proposal.id];
+  if (!decision || decision.verdict === "BLOCK") return false;
+  const receipt = mem().receipts.find((r) => r.proposalId === proposal.id);
+  return !receipt?.status || !CLOSED_STATUSES.includes(receipt.status);
+}
+
+function leaderDailySpent(follower: `0x${string}`, leader: `0x${string}`) {
+  const start = new Date();
+  start.setUTCHours(0, 0, 0, 0);
+  const from = start.toISOString();
+  const m = mem();
+  return m.receipts
+    .filter((receipt) => {
+      if (receipt.follower.toLowerCase() !== follower.toLowerCase()) return false;
+      if (!receipt.flashOrderId || receipt.decision.verdict === "BLOCK" || receipt.createdAt < from) {
+        return false;
+      }
+      return (
+        m.proposals
+          .find((proposal) => proposal.id === receipt.proposalId)
+          ?.leader?.toLowerCase() === leader.toLowerCase()
+      );
+    })
+    .reduce((sum, receipt) => sum + receipt.notionalUsd, 0);
+}
+
+export function leaderDailyRealizedLoss(
+  follower: `0x${string}`,
+  leader: `0x${string}`,
+) {
+  const start = new Date();
+  start.setUTCHours(0, 0, 0, 0);
+  const from = start.toISOString();
+  const m = mem();
+  return m.receipts
+    .filter((receipt) => {
+      if (receipt.follower.toLowerCase() !== follower.toLowerCase()) return false;
+      if (receipt.createdAt < from || !(receipt.realizedPnlUsd && receipt.realizedPnlUsd < 0)) {
+        return false;
+      }
+      return (
+        m.proposals
+          .find((proposal) => proposal.id === receipt.proposalId)
+          ?.leader?.toLowerCase() === leader.toLowerCase()
+      );
+    })
+    .reduce((sum, receipt) => sum + Math.abs(receipt.realizedPnlUsd ?? 0), 0);
+}
+
+export function leaderDailyRealizedLosses(follower: `0x${string}`) {
+  const policy = policyFor(follower);
+  return Object.fromEntries(
+    (policy.follows ?? []).map((leader) => [leader.toLowerCase(), leaderDailyRealizedLoss(follower, leader)]),
+  );
+}
+
+function assetExposure(
+  follower: `0x${string}`,
+  targetAsset: `0x${string}`,
+  side: Strategy["side"],
+) {
+  const m = mem();
+  return m.receipts
+    .filter((receipt) => {
+      if (receipt.follower.toLowerCase() !== follower.toLowerCase()) return false;
+      if (!receipt.flashOrderId || receipt.decision.verdict === "BLOCK") return false;
+      if (receipt.status && CLOSED_STATUSES.includes(receipt.status)) return false;
+      const proposal = m.proposals.find((item) => item.id === receipt.proposalId);
+      return (
+        proposal?.targetAsset.toLowerCase() === targetAsset.toLowerCase() && proposal.side === side
+      );
+    })
+    .reduce((sum, receipt) => sum + receipt.notionalUsd, 0);
+}
+
+function activePlanCount(follower: `0x${string}`, leader?: `0x${string}`) {
+  return mem().proposals.filter(
+    (proposal) =>
+      proposal.follower.toLowerCase() === follower.toLowerCase() &&
+      (!leader || proposal.leader?.toLowerCase() === leader.toLowerCase()) &&
+      isOpenProposal(proposal),
+  ).length;
+}
+
+function formatQty(value: number) {
+  if (!Number.isFinite(value) || value <= 0) throw new Error("invalid copy ratio or trade quantity");
+  return value.toFixed(8).replace(/\.?(?:0+)$/, "");
+}
+
 export async function createProposal(strategyId: string, follower: `0x${string}`) {
   const m = mem();
   const strategy = m.strategies.find((s) => s.id === strategyId);
@@ -203,6 +388,9 @@ export async function createProposal(strategyId: string, follower: `0x${string}`
   }
 
   const policy = policyFor(follower);
+  if (!followsLeader(policy, strategy.leader)) {
+    throw new Error("leader is not selected in this follower policy");
+  }
   let sized: { notional: number; price?: number } | undefined;
   let priceError = false;
   try {
@@ -210,21 +398,54 @@ export async function createProposal(strategyId: string, follower: `0x${string}`
   } catch {
     priceError = true;
   }
+  const mandate = mandateFor(policy, strategy.leader);
+  const copyRatio = mandate?.sizingMode === "PROPORTIONAL"
+    ? mandate.copyRatio
+    : policy.copyRatio;
+  const requestedNotionalUsd = mandate?.sizingMode === "FIXED"
+    ? mandate.fixedNotionalUsd
+    : (sized?.notional ?? 0) * copyRatio;
+  const requestedQty = strategy.side === "sell"
+    ? requestedNotionalUsd / (sized?.price ?? 1)
+    : requestedNotionalUsd;
+  const effectivePolicy: Policy = mandate
+    ? {
+        ...policy,
+        maxLeaderDailyUsd: mandate.maxDailyUsd,
+        allowOrderTypes: policy.allowOrderTypes.filter((type) => mandate.allowOrderTypes.includes(type)),
+      }
+    : policy;
   const proposal: Proposal = {
     id: crypto.randomUUID(),
     strategyId,
     follower,
+    leader: strategy.leader,
+    title: strategy.title,
+    thesis: strategy.thesis,
+    expiresAt: strategy.expiresAt,
+    invalidation: strategy.invalidation,
+    maxFollowerNotionalUsd: strategy.maxFollowerNotionalUsd,
+    entryReferencePrice: strategy.entryReferencePrice,
+    stopLossPrice: strategy.stopLossPrice,
+    takeProfitPrice: strategy.takeProfitPrice,
+    protectionExpiresAt: strategy.protectionExpiresAt,
+    leaderPlanGrade: strategy.leaderPlanGrade,
+    leaderPlanReasons: strategy.leaderPlanReasons,
+    leaderFlashOrderId: strategy.leaderFlashOrderId,
+    leaderEvidenceStatus: strategy.leaderEvidenceStatus,
+    copySizingMode: mandate?.sizingMode ?? "PROPORTIONAL",
+    followerExitMode: mandate?.exitMode ?? "FOLLOWER_BRACKET",
     chain: strategy.chain,
     targetAsset: strategy.targetAsset,
     contraAsset: strategy.contraAsset,
     side: strategy.side,
     orderType: strategy.orderType,
-    qty: strategy.qty,
-    notionalUsd: sized?.notional ?? 0,
-    maxSlippage: strategy.orderType === "market" ? policy.maxSlippage : undefined,
+    qty: formatQty(requestedQty),
+    notionalUsd: requestedNotionalUsd,
+    maxSlippage: strategy.orderType === "market" ? effectivePolicy.maxSlippage : undefined,
     maxPriceImpact:
       strategy.orderType === "twap" || strategy.orderType === "limit"
-        ? policy.maxPriceImpact
+        ? effectivePolicy.maxPriceImpact
         : undefined,
     durationSeconds: strategy.durationSeconds,
     limitNotionalPrice: strategy.limitNotionalPrice,
@@ -234,8 +455,15 @@ export async function createProposal(strategyId: string, follower: `0x${string}`
 
   // Fail closed: a sell we cannot price is never sized or signed.
   const decision: Decision = priceError
-    ? { verdict: "BLOCK", reasons: ["PRICE_UNAVAILABLE"] }
-    : decide(proposal, policy, dailySpent(follower));
+    ? { verdict: "BLOCK", action: "DECLINE", reasons: ["PRICE_UNAVAILABLE"] }
+    : decide(proposal, effectivePolicy, {
+        dailySpentUsd: dailySpent(follower),
+        leaderDailySpentUsd: leaderDailySpent(follower, strategy.leader),
+        leaderDailyRealizedLossUsd: leaderDailyRealizedLoss(follower, strategy.leader),
+        assetExposureUsd: assetExposure(follower, strategy.targetAsset, strategy.side),
+        activePlanCount: activePlanCount(follower),
+        activePlanCountForLeader: activePlanCount(follower, strategy.leader),
+      });
   if (decision.verdict === "MODIFY" && decision.modifiedQty) {
     const capUsd = Number(decision.modifiedQty);
     if (proposal.side === "sell" && sized?.price) {
@@ -304,6 +532,14 @@ export function saveQuote(quote: StoredQuote) {
 
 export function quoteFor(proposalId: string) {
   return mem().quotes[proposalId];
+}
+
+export function updateDecision(proposalId: string, decision: Decision) {
+  const m = mem();
+  if (!m.proposals.some((proposal) => proposal.id === proposalId)) return undefined;
+  m.decisions[proposalId] = decision;
+  persist(m);
+  return decision;
 }
 
 export function addReceipt(input: Omit<Receipt, "id" | "createdAt">) {

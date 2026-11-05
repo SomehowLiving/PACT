@@ -6,6 +6,7 @@ import type { DeskState } from "@/lib/types";
 export type DeskPayload = DeskState & {
   dailySpentUsd: number;
   blockedNotionalUsd: number;
+  leaderDailyRealizedLossesUsd: Record<string, number>;
 };
 
 export function useDesk(follower?: string) {

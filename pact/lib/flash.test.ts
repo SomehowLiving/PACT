@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { getOrder, postCancel, quoteRequest } from "./flash";
+import { executionMetrics, getOrder, postCancel, quoteRequest } from "./flash";
 import { cancelMessage } from "./typed";
 
 afterEach(() => vi.unstubAllGlobals());
@@ -81,5 +81,40 @@ describe("flash contracts", () => {
     // Flash rejects expireTime on these.
     expect(quoteRequest({ ...base, orderType: "twap" }).expireTime).toBeUndefined();
     expect(quoteRequest({ ...base, orderType: "market" }).expireTime).toBeUndefined();
+  });
+
+  it("includes an attached TP/SL bracket unchanged on a same-chain entry quote", () => {
+    const q = quoteRequest({
+      targetAsset: "0x4200000000000000000000000000000000000006",
+      contraAsset: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+      side: "buy",
+      qty: "25",
+      orderType: "twap",
+      funderAddress: "0x2222222222222222222222222222222222222222",
+      attachedBracket: {
+        takeProfit: { notionalPrice: "2600" },
+        stopLoss: { notionalPrice: "2450" },
+        expireTime: "2026-11-06T12:00:00.000Z",
+      },
+    });
+    expect(q.attachedBracket).toEqual({
+      takeProfit: { notionalPrice: "2600" },
+      stopLoss: { notionalPrice: "2450" },
+      expireTime: "2026-11-06T12:00:00.000Z",
+    });
+  });
+
+  it("extracts a quote's actual impact and execution price for the follower gate", () => {
+    expect(
+      executionMetrics(
+        {
+          quoteId: "q1",
+          estimatedPriceImpact: "0.0042",
+          from: { amount: "25", notional: "25", symbol: "USDC" },
+          to: { amount: "0.01", notional: "25", symbol: "WETH" },
+        },
+        "buy",
+      ),
+    ).toEqual({ estimatedPriceImpact: "0.0042", executionPrice: "2500" });
   });
 });

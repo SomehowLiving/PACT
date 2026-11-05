@@ -2,11 +2,13 @@
 
 import { DotMeter, Sparkline } from "@/components/Sparkline";
 import { Desks } from "@/components/Desks";
+import { PortfolioSimulation } from "@/components/PortfolioSimulation";
 import { Gauge } from "@/components/Gauge";
 import { Orb } from "@/components/Orb";
 import { VerdictPill } from "@/components/VerdictPill";
 import { useDesk, type DeskPayload } from "@/components/useDesk";
 import { reasonLabel, shortAddr, usd } from "@/lib/format";
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
 type Filter = "all" | "ALLOW" | "BLOCK";
@@ -84,6 +86,12 @@ export function Floor() {
       <section className="glass overflow-hidden rounded-[32px] p-6 md:p-8">
         <div className="flex items-start justify-between">
           <div>
+            <div className="text-[11px] uppercase tracking-[0.22em] text-gold">
+              your copy portfolio
+            </div>
+            <h1 className="mt-2 font-[family-name:var(--font-serif)] text-[28px] italic leading-none md:text-[36px]">
+              Allocate with intent.
+            </h1>
             <div className="text-[11px] uppercase tracking-[0.22em] text-mute">
               remaining today
             </div>
@@ -103,14 +111,27 @@ export function Floor() {
           <span>blocked notional</span>
           <span className="text-ink">{usd(blocked)}</span>
         </div>
+        <div className="mt-5 flex flex-wrap gap-2">
+          <Link href="/follower" className="btn-cream rounded-full px-4 py-2 text-[12px]">
+            set leader mandates
+          </Link>
+          <button
+            type="button"
+            disabled={seeding}
+            onClick={() => void loadDemo()}
+            className="rounded-full bg-white/8 px-4 py-2 text-[12px] text-ink hairline"
+          >
+            {seeding ? "loading scenario…" : "load demo scenario"}
+          </button>
+        </div>
       </section>
 
       <section className="glass rounded-[32px] p-6">
         <div className="flex items-center justify-between">
           <div>
-            <div className="text-[13px] text-mute">policy health</div>
+            <div className="text-[13px] text-mute">execution budget</div>
             <div className="mt-1 text-sm text-ink/80">
-              fail-closed on type, pair, size
+              what your selected leaders can use
             </div>
           </div>
           <Orb size={44} />
@@ -133,6 +154,7 @@ export function Floor() {
         </div>
       </section>
 
+      <PortfolioSimulation state={state} />
       <Desks state={state} />
 
       <section className="glass rounded-[32px] p-6 lg:col-span-2">

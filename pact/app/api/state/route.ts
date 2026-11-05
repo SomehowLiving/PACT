@@ -1,4 +1,4 @@
-import { blockedNotional, dailySpent, snapshot } from "@/lib/store";
+import { blockedNotional, dailySpent, leaderDailyRealizedLosses, snapshot } from "@/lib/store";
 import { NextRequest } from "next/server";
 
 export const dynamic = "force-dynamic";
@@ -12,5 +12,6 @@ export async function GET(req: NextRequest) {
     ...state,
     dailySpentUsd: follower ? dailySpent(follower) : 0,
     blockedNotionalUsd: blockedNotional(follower ?? undefined),
+    leaderDailyRealizedLossesUsd: follower ? leaderDailyRealizedLosses(follower) : {},
   });
 }

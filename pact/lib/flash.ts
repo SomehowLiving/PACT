@@ -1,6 +1,6 @@
 import { FLASH_BASE, INTEGRATOR_FEE_BPS, RESTING_ORDER_SECONDS } from "./constants";
 import { cancelMessage } from "./typed";
-import type { Chain, OrderType, Side, Trigger } from "./types";
+import type { AttachedBracket, Chain, OrderType, Side, Trigger } from "./types";
 
 function key() {
   const k = process.env.FLASH_API_KEY;
@@ -50,6 +50,7 @@ export type QuoteBody = {
   expireTime?: string;
   limitNotionalPrice?: string;
   triggers?: Trigger[];
+  attachedBracket?: AttachedBracket;
   maxSlippage?: string;
   maxPriceImpact?: string;
   forceMinimalAllowance: true;
@@ -65,14 +66,48 @@ function maybeFeeBps() {
 
 export type FlashQuote = {
   quoteId: string;
+  estimatedPriceImpact?: string;
   evm?: {
     orderTypedData?: string;
     approveTx?: { to: string; data: string; value?: string };
     permitTypedData?: string;
   };
+  attachedBracket?: {
+    salt?: string;
+    deadline?: string;
+    signedMaxFromAmount?: string;
+    evm?: {
+      orderTypedData?: string;
+      approveTx?: { to: string; data: string; value?: string };
+      permitTypedData?: string;
+    };
+  };
   from?: { notional?: string; amount?: string; symbol?: string };
   to?: { notional?: string; amount?: string; symbol?: string };
 };
+
+export function executionMetrics(quote: FlashQuote, side: Side) {
+  const pricedAsset = side === "buy" ? quote.to : quote.from;
+  const pricedNotional = Number(pricedAsset?.notional);
+  const pricedAmount = Number(pricedAsset?.amount);
+  const fromAmount = Number(quote.from?.amount);
+  const toAmount = Number(quote.to?.amount);
+  const executionPrice =
+    Number.isFinite(pricedNotional) &&
+    pricedNotional > 0 &&
+    Number.isFinite(pricedAmount) &&
+    pricedAmount > 0
+      ? pricedNotional / pricedAmount
+      : Number.isFinite(fromAmount) && fromAmount > 0 && Number.isFinite(toAmount) && toAmount > 0
+      ? side === "buy"
+        ? fromAmount / toAmount
+        : toAmount / fromAmount
+      : undefined;
+  return {
+    estimatedPriceImpact: quote.estimatedPriceImpact,
+    executionPrice: executionPrice?.toString(),
+  };
+}
 
 export function quoteRequest(
   input: Omit<
@@ -99,14 +134,20 @@ export function quoteRequest(
   };
   if (input.orderType === "twap") {
     body.durationSeconds = input.durationSeconds ?? 600;
-    body.maxPriceImpact = input.maxPriceImpact ?? "0.05";
+    body.maxPriceImpact = input.maxPriceImpact ?? "0.005";
+  }
+  if (input.attachedBracket) {
+    if (!["market", "limit", "twap"].includes(input.orderType)) {
+      throw new Error("attached brackets require a market, limit, or TWAP entry order");
+    }
+    body.attachedBracket = input.attachedBracket;
   }
   if (input.orderType === "market") {
-    body.maxSlippage = input.maxSlippage ?? "0.05";
+    body.maxSlippage = input.maxSlippage ?? "0.01";
   }
   if (input.orderType === "limit") {
     if (input.limitNotionalPrice) body.limitNotionalPrice = input.limitNotionalPrice;
-    body.maxPriceImpact = input.maxPriceImpact ?? "0.05";
+    body.maxPriceImpact = input.maxPriceImpact ?? "0.005";
     body.expireTime = expireTime;
   }
   if (
@@ -143,6 +184,14 @@ export type OrderBody = {
   evmOrderTypedData: string;
   evmPermitTypedData?: string;
   evmPermitSignature?: string;
+  attachedBracket?: AttachedBracket & {
+    userSignature: string;
+    salt?: string;
+    deadline?: string;
+    signedMaxFromAmount?: string;
+    evmPermitTypedData?: string;
+    evmPermitSignature?: string;
+  };
   triggers?: Trigger[];
   limitNotionalPrice?: string;
   flashIntegratorFeeBps?: string;

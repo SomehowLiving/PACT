@@ -7,10 +7,10 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 const NAV = [
-  { href: "/", label: "floor" },
-  { href: "/leader", label: "lead" },
-  { href: "/follower", label: "follow" },
-  { href: "/history", label: "history" },
+  { href: "/", label: "portfolio" },
+  { href: "/leader", label: "publish" },
+  { href: "/follower", label: "mandates" },
+  { href: "/history", label: "activity" },
 ];
 
 export function Shell({ children }: { children: React.ReactNode }) {
@@ -26,7 +26,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
               pact
             </div>
             <div className="mt-1 text-[10px] uppercase tracking-[0.22em] text-mute">
-              policy-aware copy
+              strategy execution
             </div>
           </div>
         </Link>
@@ -55,7 +55,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
 
       <nav className="mx-auto mt-8 mb-3 flex w-full max-w-[420px] items-center justify-between rounded-full bg-black/55 px-5 py-2.5 hairline backdrop-blur-xl md:hidden">
         <Link href="/" className={path === "/" ? "text-ink" : "text-mute"}>
-          floor
+          home
         </Link>
         <Link
           href="/leader"
@@ -70,13 +70,13 @@ export function Shell({ children }: { children: React.ReactNode }) {
           href="/follower"
           className={path === "/follower" ? "text-ink" : "text-mute"}
         >
-          follow
+          copy
         </Link>
         <Link
           href="/history"
           className={path === "/history" ? "text-ink" : "text-mute"}
         >
-          audit
+          activity
         </Link>
       </nav>
     </div>

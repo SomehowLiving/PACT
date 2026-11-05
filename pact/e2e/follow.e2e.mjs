@@ -36,6 +36,17 @@ async function api(path, body) {
 }
 
 const LEADER = "0x1111111111111111111111111111111111111111";
+async function disciplinedPlan() {
+  const health = await api("/api/health");
+  const entry = Number(health.json?.price);
+  if (!(entry > 0)) throw new Error(`could not price WETH for E2E plan: ${JSON.stringify(health.json)}`);
+  return {
+    entryReferencePrice: entry.toFixed(2),
+    stopLossPrice: (entry * 0.98).toFixed(2),
+    takeProfitPrice: (entry * 1.04).toFixed(2),
+    invalidation: "The entry thesis is invalid below the published stop.",
+  };
+}
 
 async function newSession(browser, account, { tamperQuote = false } = {}) {
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 1500 } });
@@ -157,7 +168,21 @@ async function newSession(browser, account, { tamperQuote = false } = {}) {
 async function connect(page, address) {
   await page.goto(`${BASE}/follower`, { waitUntil: "networkidle" });
   await page.getByRole("button", { name: "connect", exact: true }).click();
-  await page.getByRole("button", { name: new RegExp(address.slice(0, 6), "i") }).waitFor({ timeout: 15000 });
+  await page.getByText(new RegExp(address.slice(0, 6), "i")).first().waitFor({ timeout: 15000 });
+}
+
+async function followLeader(follower) {
+  const current = await api(`/api/policy?follower=${follower}`);
+  if (current.status !== 200 || !current.json?.policy) {
+    throw new Error(`could not load follower policy: ${JSON.stringify(current.json)}`);
+  }
+  const saved = await api("/api/policy", {
+    ...current.json.policy,
+    follows: [LEADER],
+  });
+  if (saved.status !== 200) {
+    throw new Error(`could not select leader: ${JSON.stringify(saved.json)}`);
+  }
 }
 
 const browser = await chromium.launch({ executablePath: CHROME, args: ["--no-sandbox"] });
@@ -171,10 +196,18 @@ try {
   check("wallet connects and follower page shows the address", true, a.address.slice(0, 10));
 
   await sleep(800); // let the policy for this follower be created
-  await api("/api/strategies", { leader: LEADER, orderType: "twap", qty: "10", durationSeconds: 600 });
+  await followLeader(a.address);
+  const plan1 = await disciplinedPlan();
+  await api("/api/strategies", {
+    leader: LEADER,
+    orderType: "twap",
+    qty: "10",
+    durationSeconds: 600,
+    ...plan1,
+  });
   await s1.page.reload({ waitUntil: "networkidle" });
-  await s1.page.getByRole("button", { name: new RegExp(a.address.slice(0, 6), "i") }).waitFor({ timeout: 15000 });
-  await s1.page.getByText("WETH twap").first().waitFor({ timeout: 15000 });
+  await s1.page.getByText(new RegExp(a.address.slice(0, 6), "i")).first().waitFor({ timeout: 15000 });
+  await s1.page.getByText("ETH accumulation pact").first().waitFor({ timeout: 15000 });
   await s1.page.screenshot({ path: join(OUT, "1-follower-connected.png") });
 
   const policyEditor = await s1.page.getByText("your limits").count();
@@ -192,7 +225,11 @@ try {
 
   const guardText = await s1.page.getByText(/safe to sign/).first().textContent().catch(() => null);
   check("guard panel appears and says safe to sign", Boolean(guardText?.includes("safe to sign")), guardText?.slice(0, 60) ?? "missing");
-  check("wallet was asked for approve, Permit2 and order signatures", s1.wallet.sendTx === 1 && s1.wallet.signTyped === 2, s1.wallet.log.join(" → "));
+  check(
+    "wallet was asked for entry funding and Flash signatures",
+    s1.wallet.sendTx >= 1 && s1.wallet.signTyped >= 2,
+    s1.wallet.log.join(" → "),
+  );
 
   const body = oRes ? await oRes.json().catch(() => null) : null;
   console.log(`      /api/order → ${oRes?.status()} ${JSON.stringify(body)?.slice(0, 300)}`);
@@ -243,9 +280,17 @@ try {
   const s2 = await newSession(browser, b, { tamperQuote: true });
   await connect(s2.page, b.address);
   await sleep(800);
-  await api("/api/strategies", { leader: LEADER, orderType: "twap", qty: "10", durationSeconds: 600 });
+  await followLeader(b.address);
+  const plan2 = await disciplinedPlan();
+  await api("/api/strategies", {
+    leader: LEADER,
+    orderType: "twap",
+    qty: "10",
+    durationSeconds: 600,
+    ...plan2,
+  });
   await s2.page.reload({ waitUntil: "networkidle" });
-  await s2.page.getByRole("button", { name: new RegExp(b.address.slice(0, 6), "i") }).waitFor({ timeout: 15000 });
+  await s2.page.getByText(new RegExp(b.address.slice(0, 6), "i")).first().waitFor({ timeout: 15000 });
   const sign2 = s2.page.getByRole("button", { name: "sign", exact: true }).first();
   await sign2.waitFor({ timeout: 15000 });
   await sign2.click();
@@ -262,7 +307,14 @@ try {
   const s3 = await newSession(browser, c);
   await connect(s3.page, c.address);
   await sleep(800);
-  await api("/api/strategies", { leader: LEADER, orderType: "market", qty: "500" });
+  await followLeader(c.address);
+  const plan3 = await disciplinedPlan();
+  await api("/api/strategies", {
+    leader: LEADER,
+    orderType: "market",
+    qty: "500",
+    ...plan3,
+  });
   await s3.page.reload({ waitUntil: "networkidle" });
   await s3.page.getByText("sign locked").first().waitFor({ timeout: 15000 });
   const lockedBtn = s3.page.getByRole("button", { name: "sign locked" }).first();
