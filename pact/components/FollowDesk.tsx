@@ -12,6 +12,7 @@ import { cancelMessage, parseOrderTypedData } from "@/lib/typed";
 import { reasonLabel, shortAddr, usd } from "@/lib/format";
 import Link from "next/link";
 import type {
+  AutomationMode,
   Chain,
   Decision,
   FollowerExitMode,
@@ -207,6 +208,7 @@ export function FollowDesk({ reviewProposalId }: { reviewProposalId?: string }) 
             correlation estimate from insufficient history.
           </p>
         </div>
+        {isConnected && address ? <AssistPanel follower={address} mode={policy.automationMode ?? "REVIEW"} /> : null}
         {isConnected && address ? (
           <PolicyEditor
             key={JSON.stringify(policy)}
@@ -392,6 +394,88 @@ function Row({ k, v }: { k: string; v: string }) {
     <div className="flex items-center justify-between border-b border-white/6 py-2">
       <dt className="text-mute">{k}</dt>
       <dd>{v}</dd>
+    </div>
+  );
+}
+
+type AssistResponse = {
+  mode: AutomationMode;
+  recommendations: {
+    proposalId: string;
+    action: "PREPARE_REVIEW" | "HOLD" | "DECLINE";
+    headline: string;
+    reasons: string[];
+  }[];
+  constraints: string[];
+};
+
+function AssistPanel({ follower, mode }: { follower: `0x${string}`; mode: AutomationMode }) {
+  const [result, setResult] = useState<AssistResponse | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function scan() {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/agent?follower=${follower}`, { cache: "no-store" });
+      const json = (await res.json()) as AssistResponse & { error?: string };
+      if (!res.ok) throw new Error(json.error ?? "agent scan failed");
+      setResult(json);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "agent scan failed");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="mt-4 border border-line bg-black/25 p-3">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="terminal-kicker">PACT Assist</div>
+          <p className="mt-1 text-[11px] leading-relaxed text-mute">
+            {mode === "ASSIST"
+              ? "Scans your follower-owned mandate and queues only policy-compliant plans for review."
+              : "Enable Assist in your copy plan to scan mandates into a review queue."}
+          </p>
+        </div>
+        <button
+          type="button"
+          disabled={loading || mode !== "ASSIST"}
+          onClick={() => void scan()}
+          className={`px-3 py-2 font-mono text-[10px] uppercase tracking-[0.08em] ${
+            mode === "ASSIST" ? "border border-gold text-gold" : "cursor-not-allowed border border-line text-mute"
+          }`}
+        >
+          {loading ? "scanning…" : "scan plans"}
+        </button>
+      </div>
+      {mode !== "ASSIST" ? (
+        <p className="mt-2 text-[10px] leading-relaxed text-mute">
+          Autopilot is deliberately unavailable: PACT has no delegated session-key smart account,
+          so no agent can sign, submit, cancel, or change your limits.
+        </p>
+      ) : null}
+      {error ? <p className="mt-2 text-[11px] text-rose">{error}</p> : null}
+      {result ? (
+        <div className="mt-3 space-y-2">
+          {result.recommendations.length ? result.recommendations.map((item) => (
+            <div key={item.proposalId} className="border border-line p-2 text-[11px]">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-ink">{item.headline}</span>
+                {item.action === "PREPARE_REVIEW" ? (
+                  <Link href={`/review/${item.proposalId}`} className="text-gold">review →</Link>
+                ) : (
+                  <span className="font-mono text-[10px] text-mute">{item.action.toLowerCase()}</span>
+                )}
+              </div>
+              {item.reasons.length ? <p className="mt-1 text-mute">{item.reasons.map(reasonLabel).join(" · ")}</p> : null}
+            </div>
+          )) : <p className="text-[11px] text-mute">No follower proposals to assess.</p>}
+          <p className="text-[10px] leading-relaxed text-mute">{result.constraints[0]}</p>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -1159,6 +1243,23 @@ function PolicyEditor({
         this value. It only acts on closed PACT receipts with P&amp;L evidence; it is not a
         prediction or a substitute for the attached stop.
       </p>
+      <label className="mt-3 block text-[11px] text-mute">
+        agent mode
+        <select
+          value={draft.automationMode ?? "REVIEW"}
+          onChange={(event) =>
+            setDraft({ ...draft, automationMode: event.target.value as AutomationMode })
+          }
+          className="mt-1 w-full rounded-lg bg-black/30 px-2 py-2 text-[11px] text-ink hairline"
+        >
+          <option value="REVIEW">review only — self-sign every order</option>
+          <option value="ASSIST">PACT Assist — scan and queue for review</option>
+        </select>
+        <span className="mt-1 block text-[10px] leading-relaxed">
+          Assist is deterministic policy orchestration. It does not hold a key, quote, sign, submit,
+          cancel, or alter a mandate.
+        </span>
+      </label>
       <Chips
         label="chains"
         options={CHAIN_IDS}

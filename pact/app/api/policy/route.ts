@@ -40,6 +40,7 @@ export async function POST(req: Request) {
     !(body.minNotionalUsd >= 0) ||
     !(body.copyRatio > 0 && body.copyRatio <= 1) ||
     !(body.riskBudgetUsd > 0) ||
+    !(body.automationMode === undefined || body.automationMode === "REVIEW" || body.automationMode === "ASSIST") ||
     !(body.maxLeaderDailyUsd >= body.minNotionalUsd) ||
     !(body.maxLeaderDailyRealizedLossUsd > 0) ||
     !(body.maxAssetExposureUsd >= body.minNotionalUsd) ||

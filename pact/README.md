@@ -42,7 +42,7 @@ The Floor uses a dense terminal-style hierarchy: portfolio budget first, executi
 | Actor | Trust | What they can do |
 | --- | --- | --- |
 | Leader | untrusted | Post a Flash-shaped intent. Cannot spend follower funds. |
-| LLM / agent | untrusted | Propose copy. Policy runs before any quote or signature. |
+| PACT Assist | untrusted orchestrator | Reads stored policy decisions and queues review only. It cannot quote, sign, submit, cancel, or change a mandate. |
 | Policy `decide()` | trusted | ALLOW / MODIFY / BLOCK. First BLOCK wins. |
 | Follower wallet | signer | EIP-712 + `approveTx`. Only this key spends. |
 | PACT server | semi-trusted | Holds `FLASH_API_KEY`. Must refuse BLOCK. Can submit a signature it already has. |
@@ -70,4 +70,4 @@ Health: `GET /api/health` hits Flash `/search`.
 
 ## AI
 
-This product was written with Grok Build (xAI). Policy cases, Flash client, and UI are in this repo; Flash itself is Definitive’s.
+`ASSIST` mode is a deterministic policy queue, not an autonomous trading agent. Autopilot requires a follower-owned smart account, scoped session key, EIP-1271 validation, revocation, and a live Flash integration test; see `AGENT_AUTOMATION_ARCHITECTURE.md`. This product was written with Grok Build (xAI). Policy cases, Flash client, and UI are in this repo; Flash itself is Definitive’s.

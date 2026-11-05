@@ -16,6 +16,8 @@ export type LeaderPlanGrade = "DISCIPLINED" | "CAUTION" | "INCOMPLETE";
  */
 export type LeaderEvidenceStatus = "UNVERIFIED" | "ORDER_FOUND";
 export type CopySizingMode = "PROPORTIONAL" | "FIXED" | "STOP_RISK";
+/** Review requires one signature per order; Assist may prepare recommendations but never signs. */
+export type AutomationMode = "REVIEW" | "ASSIST";
 export type FollowerExitMode = "FOLLOWER_BRACKET" | "MANUAL";
 export type DemoCase =
   | "CORE_TWAP_COPY"
@@ -135,6 +137,8 @@ export type Policy = {
   requireLeaderExecutionEvidence?: boolean;
   minRewardRisk: number;
   askHumanUsd?: number;
+  /** Assist may prepare policy-compliant review items; it never receives signing authority. */
+  automationMode?: AutomationMode;
   /** Explicitly selected leaders this follower copies. */
   follows?: `0x${string}`[];
   /** Optional leader-specific overrides. A missing mandate falls back to the global policy. */

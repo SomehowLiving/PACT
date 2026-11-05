@@ -205,8 +205,8 @@ signature flow. It remains follower-initiated.
 
 - automatic batch cancel;
 - automatic market unwind;
-- delegated session keys;
-- autonomous copy execution.
+- delegated session keys and autonomous copy execution until the requirements in
+  `AGENT_AUTOMATION_ARCHITECTURE.md` are met.
 
 Those features require a different authorization design and would weaken the
 current no-standing-authority claim.

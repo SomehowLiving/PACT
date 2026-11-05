@@ -28,6 +28,7 @@ export function defaultPolicy(follower: `0x${string}`): Policy {
     maxPriceImpact: "0.005",
     copyRatio: 0.25,
     riskBudgetUsd: 2,
+    automationMode: "REVIEW",
     maxLeaderDailyUsd: 25,
     maxLeaderDailyRealizedLossUsd: 10,
     maxAssetExposureUsd: 35,
