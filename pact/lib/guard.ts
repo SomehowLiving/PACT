@@ -17,6 +17,12 @@ export type GuardInput = {
   contraAsset: string;
   /** Approved size: contra units on a buy (USDC), target units on a sell (WETH). */
   qty: string;
+  /**
+   * Base units of the spent token already committed to this follower's other unfilled orders.
+   * Flash sizes the Permit2 permit to this order plus those, so the permit may be that large.
+   * The order signature (fromAmount) stays capped to `qty` either way.
+   */
+  otherOpenUnits?: string;
   quote: {
     orderTypedData?: string;
     permitTypedData?: string;
@@ -32,7 +38,7 @@ const DAY = 86_400;
 const eq = (a?: string, b?: string) =>
   Boolean(a && b && a.toLowerCase() === b.toLowerCase());
 
-function toUnits(qty: string, decimals: number): bigint | undefined {
+export function toUnits(qty: string, decimals: number): bigint | undefined {
   if (!/^\d+(\.\d+)?$/.test(qty)) return undefined;
   const [whole, frac = ""] = qty.split(".");
   if (frac.length > decimals) return undefined;
@@ -183,18 +189,32 @@ export function verifySigning(input: GuardInput): GuardResult {
     } catch {
       pAmount = undefined;
     }
+    let other = BigInt(0);
+    try {
+      other = input.otherOpenUnits ? BigInt(input.otherOpenUnits) : BigInt(0);
+    } catch {
+      other = BigInt(0);
+    }
+    const permitCap = cap === undefined ? undefined : cap + other;
     add(
       "permit.amount",
-      "permit sized to the approved size",
-      pAmount !== undefined && cap !== undefined && pAmount <= cap ? "pass" : "fail",
-      `permit ${pAmount ?? "unreadable"}, approved ${cap ?? "unknown"}`,
+      "permit sized to this order and your open orders",
+      pAmount !== undefined && permitCap !== undefined && pAmount <= permitCap ? "pass" : "fail",
+      other > BigInt(0)
+        ? `permit ${pAmount ?? "unreadable"}, allowed ${permitCap ?? "unknown"} (this order ${cap ?? "unknown"} + ${other} already open)`
+        : `permit ${pAmount ?? "unreadable"}, approved ${cap ?? "unknown"}`,
     );
+    // Flash adds a 24 h buffer to the latest order deadline, so judge the permit against the
+    // order's own deadline and not against "now" (a 7-day limit order needs an 8-day permit).
     const exp = Number(d?.expiration);
+    const orderEnd = Number.isFinite(deadline) && deadline > now ? deadline : now;
     add(
       "permit.expiry",
       "permit expiry",
-      Number.isFinite(exp) && exp > now && exp - now <= 2 * DAY ? "pass" : "warn",
-      Number.isFinite(exp) ? `expires in ${Math.round((exp - now) / 3600)} h` : "no expiry readable",
+      Number.isFinite(exp) && exp > now && exp <= orderEnd + DAY + 3_600 ? "pass" : "warn",
+      Number.isFinite(exp)
+        ? `expires in ${Math.round((exp - now) / 3600)} h (order ends in ${Math.round((orderEnd - now) / 3600)} h)`
+        : "no expiry readable",
     );
   }
 

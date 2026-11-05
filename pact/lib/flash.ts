@@ -1,4 +1,4 @@
-import { FLASH_BASE, INTEGRATOR_FEE_BPS } from "./constants";
+import { FLASH_BASE, INTEGRATOR_FEE_BPS, RESTING_ORDER_SECONDS } from "./constants";
 import { cancelMessage } from "./typed";
 import type { Chain, OrderType, Side, Trigger } from "./types";
 
@@ -46,6 +46,8 @@ export type QuoteBody = {
   orderType: OrderType;
   funderAddress: string;
   durationSeconds?: number;
+  /** ISO end time. Resting orders only: Flash rejects it on TWAP and market orders. */
+  expireTime?: string;
   limitNotionalPrice?: string;
   triggers?: Trigger[];
   maxSlippage?: string;
@@ -76,9 +78,12 @@ export function quoteRequest(
   input: Omit<
     QuoteBody,
     "forceMinimalAllowance" | "evmUsePermit2" | "flashIntegratorFeeBps" | "targetChain" | "contraChain"
-  > & { chain?: Chain },
+  > & { chain?: Chain; nowMs?: number },
 ): QuoteBody {
   const chain = input.chain ?? "base";
+  const expireTime = new Date(
+    (input.nowMs ?? Date.now()) + RESTING_ORDER_SECONDS * 1000,
+  ).toISOString();
   const body: QuoteBody = {
     targetChain: chain,
     contraChain: chain,
@@ -102,6 +107,7 @@ export function quoteRequest(
   if (input.orderType === "limit") {
     if (input.limitNotionalPrice) body.limitNotionalPrice = input.limitNotionalPrice;
     body.maxPriceImpact = input.maxPriceImpact ?? "0.05";
+    body.expireTime = expireTime;
   }
   if (
     input.orderType === "stop-loss" ||
@@ -111,6 +117,7 @@ export function quoteRequest(
     if (!input.triggers?.length) throw new Error("trigger order needs a trigger price");
     body.triggers = input.triggers;
     body.maxPriceImpact = input.maxPriceImpact ?? "0.1";
+    body.expireTime = expireTime;
   }
   return body;
 }

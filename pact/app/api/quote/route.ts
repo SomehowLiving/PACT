@@ -1,7 +1,7 @@
 import { INTEGRATOR_FEE_BPS } from "@/lib/constants";
 import { postQuote, quoteRequest } from "@/lib/flash";
 import { verifySigning } from "@/lib/guard";
-import { decisionFor, proposalById, saveQuote } from "@/lib/store";
+import { decisionFor, openSpendUnits, proposalById, saveQuote } from "@/lib/store";
 
 export const dynamic = "force-dynamic";
 
@@ -39,6 +39,15 @@ export async function POST(req: Request) {
       }),
     );
 
+    // Flash sizes the permit to this order plus the wallet's other open orders for the token.
+    const spentToken = proposal.side === "buy" ? proposal.contraAsset : proposal.targetAsset;
+    const otherOpenUnits = openSpendUnits(
+      proposal.follower,
+      proposal.chain,
+      spentToken,
+      proposal.id,
+    );
+
     // Same guard the follower's browser runs. A quote that fails is never stored or served.
     const guard = verifySigning({
       chain: proposal.chain,
@@ -47,6 +56,7 @@ export async function POST(req: Request) {
       targetAsset: proposal.targetAsset,
       contraAsset: proposal.contraAsset,
       qty,
+      otherOpenUnits,
       quote: quote.evm ?? {},
     });
     if (!guard.ok) {
@@ -75,7 +85,7 @@ export async function POST(req: Request) {
       raw: quote,
     });
 
-    return Response.json({ quote: stored, guard, feeBps: INTEGRATOR_FEE_BPS });
+    return Response.json({ quote: stored, guard, feeBps: INTEGRATOR_FEE_BPS, otherOpenUnits });
   } catch (e) {
     return Response.json(
       { error: e instanceof Error ? e.message : "quote failed" },

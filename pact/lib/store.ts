@@ -1,6 +1,8 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { tokenDecimals } from "./chains";
 import { defaultPolicy, USDC, WETH } from "./constants";
+import { toUnits } from "./guard";
 import { sha256Json } from "./hash";
 import { decide } from "./policy";
 import { assetPrice } from "./price";
@@ -330,6 +332,42 @@ export function attachOrder(proposalId: string, flashOrderId: string) {
   const log = m.logs.find((l) => l.proposalId === proposalId);
   if (log) log.flashOrderId = flashOrderId;
   persist(m);
+}
+
+const CLOSED_STATUSES = [
+  "ORDER_STATUS_FILLED",
+  "ORDER_STATUS_CANCELLED",
+  "ORDER_STATUS_REJECTED",
+  "ORDER_STATUS_TERMINATED",
+];
+
+/**
+ * Base units of `spentToken` this follower has committed to other submitted orders that are not
+ * closed yet. Flash sizes the Permit2 permit to the new order plus these, so the guard needs the
+ * number. It uses each order's full size, which is never smaller than what is still unfilled.
+ * Orders placed outside PACT are invisible here.
+ */
+export function openSpendUnits(
+  follower: string,
+  chain: string,
+  spentToken: string,
+  excludeProposalId: string,
+): string {
+  const m = mem();
+  let total = BigInt(0);
+  for (const r of m.receipts) {
+    if (!r.flashOrderId || r.proposalId === excludeProposalId) continue;
+    if (r.follower.toLowerCase() !== follower.toLowerCase()) continue;
+    if (r.status && CLOSED_STATUSES.includes(r.status)) continue;
+    const p = m.proposals.find((x) => x.id === r.proposalId);
+    if (!p || p.chain !== chain) continue;
+    const spent = p.side === "buy" ? p.contraAsset : p.targetAsset;
+    if (spent.toLowerCase() !== spentToken.toLowerCase()) continue;
+    const dec = tokenDecimals(p.chain, spent);
+    const units = dec === undefined ? undefined : toUnits(r.decision.modifiedQty ?? p.qty, dec);
+    if (units !== undefined) total += units;
+  }
+  return total.toString();
 }
 
 export function blockedNotional(follower?: `0x${string}`) {

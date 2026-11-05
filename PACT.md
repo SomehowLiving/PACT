@@ -89,12 +89,12 @@ It refuses to sign unless all of the following hold:
 - The signing domain is the right chain and the verifying contract is the Flash contract.
 - The swapper (funds source) and the recipient (proceeds) are both the follower.
 - The from and to tokens match the proposal, and the direction matches buy or sell.
-- `fromAmount` is at most the policy-approved size, and the Permit2 permit amount is at most that size too.
+- `fromAmount` is at most the policy-approved size. The Permit2 permit amount is at most that size plus the follower's other open orders for the same token, because Flash sizes the permit to the new order plus whatever is still unfilled.
 - The Permit2 spender is the Flash contract, the permit is for the spent token, and the permit contract is the canonical Permit2.
 - The approve call goes only to the spent token, only for Permit2.
 - The deadline is in the future.
 
-The guard has 13 unit tests that simulate a lying server: an inflated amount, redirected proceeds, a swapped token, the wrong spender, the wrong chain and an expired deadline. A browser test also tampers with a live quote by inflating the amount 20 times and confirms the wallet is never asked to sign anything.
+The guard has 19 unit tests that simulate a lying server: an inflated amount, redirected proceeds, a swapped token, the wrong spender, the wrong chain and an expired deadline. A browser test also tampers with a live quote by inflating the amount 20 times and confirms the wallet is never asked to sign anything.
 
 ### Signing flow
 
@@ -152,7 +152,7 @@ The guard has 13 unit tests that simulate a lying server: an inflated amount, re
 
 ## Verification
 
-- **24 unit tests:** 6 policy cases, 13 wallet-guard cases, 5 Flash contract cases (order status shape, required funder address, exact cancel message bytes, trigger orders).
+- **31 unit tests:** 6 policy cases, 19 wallet-guard cases (including permits that cover open orders and permit expiry), 6 Flash contract cases (order status shape, required funder address, exact cancel message bytes, trigger orders, end times on resting orders).
 - **10-check browser test** with a mock wallet: a throwaway key signs for real against the live Flash quote. It covers connecting, the guard panel, the approve, Permit2 and order signing sequence, a tampered quote being refused, and a BLOCK staying locked.
 - **Live checks against Flash:** health, quotes on Base and Arc, a priced take-profit, and BLOCK refusals at `/quote` and `/order`.
 - Type check and lint are clean.

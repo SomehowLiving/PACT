@@ -57,4 +57,29 @@ describe("flash contracts", () => {
     expect(q.triggers).toEqual([{ notionalPrice: "3000", triggerType: "upper" }]);
     expect(() => quoteRequest(base)).toThrow(/trigger/);
   });
+
+  it("sets an end time on resting orders and never on TWAP or market orders", () => {
+    const nowMs = Date.UTC(2026, 10, 5, 12, 0, 0);
+    const base = {
+      targetAsset: "0x4200000000000000000000000000000000000006",
+      contraAsset: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+      side: "buy" as const,
+      qty: "25",
+      funderAddress: "0x2222222222222222222222222222222222222222",
+      nowMs,
+    };
+    const week = "2026-11-12T12:00:00.000Z";
+    expect(quoteRequest({ ...base, orderType: "limit", limitNotionalPrice: "1800" }).expireTime).toBe(week);
+    for (const orderType of ["stop-loss", "take-profit", "stop"] as const) {
+      const q = quoteRequest({
+        ...base,
+        orderType,
+        triggers: [{ notionalPrice: "3000", triggerType: "upper" }],
+      });
+      expect(q.expireTime).toBe(week);
+    }
+    // Flash rejects expireTime on these.
+    expect(quoteRequest({ ...base, orderType: "twap" }).expireTime).toBeUndefined();
+    expect(quoteRequest({ ...base, orderType: "market" }).expireTime).toBeUndefined();
+  });
 });

@@ -299,6 +299,8 @@ function ProposalCard({
         targetAsset: proposal.targetAsset,
         contraAsset: proposal.contraAsset,
         qty: decision?.modifiedQty ?? proposal.qty,
+        // Shown in the guard panel. The order signature stays capped to this order's size either way.
+        otherOpenUnits: qJson.otherOpenUnits as string | undefined,
         quote,
       });
       setGuard(result);

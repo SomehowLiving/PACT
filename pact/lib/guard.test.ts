@@ -74,6 +74,56 @@ describe("verifySigning", () => {
     expect(failing(r)).toContain("permit.amount");
   });
 
+  it("accepts a permit that covers this order plus the follower's other open orders", () => {
+    // Flash: a new 25 USDC order with 40 USDC already open needs a 65 USDC permit.
+    const quote = { permitTypedData: permit({}, { amount: "65000000" }) };
+    const r = verifySigning({ ...input(quote), otherOpenUnits: "40000000" });
+    expect(r.ok).toBe(true);
+    expect(r.checks.find((c) => c.id === "permit.amount")?.level).toBe("pass");
+  });
+
+  it("still fails a permit larger than this order plus the known open orders", () => {
+    const quote = { permitTypedData: permit({}, { amount: "66000000" }) };
+    const r = verifySigning({ ...input(quote), otherOpenUnits: "40000000" });
+    expect(failing(r)).toContain("permit.amount");
+  });
+
+  it("fails the same honest 65 USDC permit when no open orders are known", () => {
+    const r = verifySigning(input({ permitTypedData: permit({}, { amount: "65000000" }) }));
+    expect(failing(r)).toContain("permit.amount");
+  });
+
+  it("never lets open orders raise the order's own signed amount", () => {
+    const r = verifySigning({
+      ...input({ orderTypedData: order({ fromAmount: "65000000" }) }),
+      otherOpenUnits: "40000000",
+    });
+    expect(failing(r)).toContain("order.amount");
+  });
+
+  it("ignores an unreadable open-orders value instead of widening the limit", () => {
+    const r = verifySigning({
+      ...input({ permitTypedData: permit({}, { amount: "65000000" }) }),
+      otherOpenUnits: "lots",
+    });
+    expect(failing(r)).toContain("permit.amount");
+  });
+
+  it("judges the permit expiry against the order deadline plus Flash's 24 h buffer", () => {
+    const week = 7 * 86_400;
+    const resting = input({
+      orderTypedData: order({ deadline: String(NOW + week) }),
+      permitTypedData: permit({}, { expiration: String(NOW + week + 86_400) }),
+    });
+    expect(verifySigning(resting).checks.find((c) => c.id === "permit.expiry")?.level).toBe("pass");
+
+    const unlimited = input({
+      orderTypedData: order({ deadline: String(NOW + week) }),
+      permitTypedData: permit({}, { expiration: "281474976710655" }),
+    });
+    expect(verifySigning(unlimited).checks.find((c) => c.id === "permit.expiry")?.level).toBe("warn");
+  });
+
   it("fails when proceeds are redirected to another address", () => {
     const r = verifySigning(
       input({ orderTypedData: order({ recipient: "0x9999999999999999999999999999999999999999" }) }),
