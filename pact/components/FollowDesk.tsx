@@ -208,7 +208,9 @@ export function FollowDesk({ reviewProposalId }: { reviewProposalId?: string }) 
             correlation estimate from insufficient history.
           </p>
         </div>
-        {isConnected && address ? <AssistPanel follower={address} mode={policy.automationMode ?? "REVIEW"} /> : null}
+        {isConnected && address ? (
+          <AssistPanel policy={policy} onSaved={refresh} />
+        ) : null}
         {isConnected && address ? (
           <PolicyEditor
             key={JSON.stringify(policy)}
@@ -409,10 +411,33 @@ type AssistResponse = {
   constraints: string[];
 };
 
-function AssistPanel({ follower, mode }: { follower: `0x${string}`; mode: AutomationMode }) {
+function AssistPanel({ policy, onSaved }: { policy: Policy; onSaved: () => Promise<void> }) {
+  const follower = policy.follower;
+  const mode = policy.automationMode ?? "REVIEW";
   const [result, setResult] = useState<AssistResponse | null>(null);
   const [loading, setLoading] = useState(false);
+  const [savingMode, setSavingMode] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  async function setAssistMode(nextMode: AutomationMode) {
+    setSavingMode(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/policy", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ ...policy, automationMode: nextMode }),
+      });
+      const json = (await res.json()) as { error?: string };
+      if (!res.ok) throw new Error(json.error ?? "could not update Assist mode");
+      if (nextMode === "REVIEW") setResult(null);
+      await onSaved();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "could not update Assist mode");
+    } finally {
+      setSavingMode(false);
+    }
+  }
 
   async function scan() {
     setLoading(true);
@@ -437,24 +462,34 @@ function AssistPanel({ follower, mode }: { follower: `0x${string}`; mode: Automa
           <p className="mt-1 text-[11px] leading-relaxed text-mute">
             {mode === "ASSIST"
               ? "Scans your follower-owned mandate and queues only policy-compliant plans for review."
-              : "Enable Assist in your copy plan to scan mandates into a review queue."}
+              : "Turn on Assist to scan your existing mandates into a review queue."}
           </p>
         </div>
-        <button
-          type="button"
-          disabled={loading || mode !== "ASSIST"}
-          onClick={() => void scan()}
-          className={`px-3 py-2 font-mono text-[10px] uppercase tracking-[0.08em] ${
-            mode === "ASSIST" ? "border border-gold text-gold" : "cursor-not-allowed border border-line text-mute"
-          }`}
-        >
-          {loading ? "scanning…" : "scan plans"}
-        </button>
+        <div className="flex shrink-0 gap-2">
+          <button
+            type="button"
+            disabled={savingMode}
+            onClick={() => void setAssistMode(mode === "ASSIST" ? "REVIEW" : "ASSIST")}
+            className="border border-line px-3 py-2 font-mono text-[10px] uppercase tracking-[0.08em] text-mute hover:border-gold hover:text-gold disabled:cursor-not-allowed"
+          >
+            {savingMode ? "saving…" : mode === "ASSIST" ? "turn off" : "enable"}
+          </button>
+          {mode === "ASSIST" ? (
+            <button
+              type="button"
+              disabled={loading}
+              onClick={() => void scan()}
+              className="border border-gold px-3 py-2 font-mono text-[10px] uppercase tracking-[0.08em] text-gold disabled:cursor-not-allowed"
+            >
+              {loading ? "scanning…" : "scan plans"}
+            </button>
+          ) : null}
+        </div>
       </div>
       {mode !== "ASSIST" ? (
         <p className="mt-2 text-[10px] leading-relaxed text-mute">
-          Autopilot is deliberately unavailable: PACT has no delegated session-key smart account,
-          so no agent can sign, submit, cancel, or change your limits.
+          Assist never signs or trades. Autopilot is not enabled in this version because it needs a
+          follower-owned session-key smart account with explicit onchain limits and revocation.
         </p>
       ) : null}
       {error ? <p className="mt-2 text-[11px] text-rose">{error}</p> : null}
