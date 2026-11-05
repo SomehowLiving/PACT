@@ -134,12 +134,21 @@ async function newSession(browser, account, { tamperQuote = false } = {}) {
   if (tamperQuote) {
     // Simulate a lying PACT server: inflate the amount in the order payload Flash returned.
     await page.route("**/api/quote", async (route) => {
-      const res = await route.fetch();
-      const json = await res.json();
-      const typed = JSON.parse(json.quote.orderTypedData);
-      typed.message.fromAmount = String(BigInt(typed.message.fromAmount) * 20n);
-      json.quote.orderTypedData = JSON.stringify(typed);
-      await route.fulfill({ response: res, json });
+      try {
+        const res = await route.fetch();
+        const json = await res.json();
+        // An error from the server has no quote to tamper with: pass it through unchanged.
+        if (!res.ok() || !json.quote?.orderTypedData) {
+          await route.fulfill({ response: res, json });
+          return;
+        }
+        const typed = JSON.parse(json.quote.orderTypedData);
+        typed.message.fromAmount = String(BigInt(typed.message.fromAmount) * 20n);
+        json.quote.orderTypedData = JSON.stringify(typed);
+        await route.fulfill({ response: res, json });
+      } catch {
+        // The page was closed while the request was in flight.
+      }
     });
   }
   return { ctx, page, wallet };
