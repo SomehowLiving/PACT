@@ -4,7 +4,7 @@ import { tokenDecimals } from "./chains";
 import { defaultPolicy, USDC, WETH } from "./constants";
 import { toUnits } from "./guard";
 import { sha256Json } from "./hash";
-import { assessLeaderPlan, decide } from "./policy";
+import { assessLeaderPlan, decide, stopRiskSizing } from "./policy";
 import { assetPrice } from "./price";
 import type {
   AuditLog,
@@ -78,6 +78,12 @@ export const DEMO_CHASE_LEADER =
   "0x6666666666666666666666666666666666666666" as const;
 export const DEMO_PORTFOLIO_FOLLOWER =
   "0x7777777777777777777777777777777777777777" as const;
+export const DEMO_QUALITY_FOLLOWER =
+  "0x8888888888888888888888888888888888888888" as const;
+export const DEMO_EVIDENCE_FOLLOWER =
+  "0x9999999999999999999999999999999999999999" as const;
+export const DEMO_HIGH_BETA_FOLLOWER =
+  "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" as const;
 export const DEMO_FOLLOWER =
   "0x2222222222222222222222222222222222222222" as const;
 export const DEMO_BOLD = "0x3333333333333333333333333333333333333333" as const;
@@ -164,6 +170,22 @@ export async function seedDemo(opts?: {
     label: "portfolio",
     follows: [leader, pullbackLeader, chaseLeader],
   });
+  upsertPolicy({
+    ...defaultPolicy(DEMO_QUALITY_FOLLOWER),
+    label: "quality-caution",
+    follows: [leader],
+  });
+  upsertPolicy({
+    ...defaultPolicy(DEMO_EVIDENCE_FOLLOWER),
+    label: "evidence-required",
+    follows: [leader],
+    requireLeaderExecutionEvidence: true,
+  });
+  upsertPolicy({
+    ...defaultPolicy(DEMO_HIGH_BETA_FOLLOWER),
+    label: "high-beta-refusal",
+    follows: [leader],
+  });
 
   // A realistic follower does not allocate independently to every influencer. This compact
   // basket tests a shared daily budget, a per-leader sleeve, and an order-type refusal.
@@ -171,6 +193,7 @@ export async function seedDemo(opts?: {
     ...base,
     ...plan,
     title: "Trend entry · leader one",
+    demoCase: "CORE_TWAP_COPY",
     orderType: "twap",
     qty: "80",
     durationSeconds: 600,
@@ -180,6 +203,7 @@ export async function seedDemo(opts?: {
     ...plan,
     leader: pullbackLeader,
     title: "Pullback entry · leader two",
+    demoCase: "SLEEVE_SCALE",
     orderType: "limit",
     qty: "120",
     limitNotionalPrice: "2500",
@@ -189,6 +213,7 @@ export async function seedDemo(opts?: {
     ...plan,
     leader: chaseLeader,
     title: "Late market chase · leader three",
+    demoCase: "MARKET_REFUSAL",
     orderType: "market",
     qty: "40",
   });
@@ -198,7 +223,54 @@ export async function seedDemo(opts?: {
     await createProposal(chase.id, portfolioFollower),
   ];
 
-  return { twap, market, allow, block, split, desks, portfolio };
+  const expired = addStrategy({
+    ...base,
+    ...plan,
+    title: "Expired entry window",
+    demoCase: "EXPIRED_PLAN",
+    expiresAt: new Date(Date.now() - 60_000).toISOString(),
+    orderType: "limit",
+    qty: "20",
+    limitNotionalPrice: "2500",
+  });
+  const lowRewardRisk = addStrategy({
+    ...base,
+    ...plan,
+    title: "Low reward:risk plan",
+    demoCase: "LOW_RR_CAUTION",
+    stopLossPrice: "2450",
+    takeProfitPrice: "2550",
+    orderType: "twap",
+    qty: "20",
+    durationSeconds: 600,
+  });
+  const evidence = addStrategy({
+    ...base,
+    ...plan,
+    title: "Evidence required by follower",
+    demoCase: "EVIDENCE_REVIEW",
+    orderType: "limit",
+    qty: "20",
+    limitNotionalPrice: "2500",
+  });
+  const highBeta = addStrategy({
+    ...base,
+    ...plan,
+    title: "High-beta asset outside allowlist",
+    demoCase: "HIGH_BETA_PAIR_REFUSAL",
+    targetAsset: "0x000000000000000000000000000000000000c0de",
+    orderType: "limit",
+    qty: "15",
+    limitNotionalPrice: "1",
+  });
+  const edgeCases = [
+    await createProposal(expired.id, portfolioFollower),
+    await createProposal(lowRewardRisk.id, DEMO_QUALITY_FOLLOWER),
+    await createProposal(evidence.id, DEMO_EVIDENCE_FOLLOWER),
+    await createProposal(highBeta.id, DEMO_HIGH_BETA_FOLLOWER),
+  ];
+
+  return { twap, market, allow, block, split, desks, portfolio, edgeCases };
 }
 
 export function upsertPolicy(policy: Policy) {
@@ -229,9 +301,11 @@ function normalizePolicy(policy: Policy): Policy {
     ...policy,
     allowChains: policy.allowChains?.length ? policy.allowChains : defaults.allowChains,
     follows: policy.follows ?? [],
-    mandates: (policy.mandates ?? []).filter((mandate) =>
-      (policy.follows ?? []).some((leader) => leader.toLowerCase() === mandate.leader.toLowerCase()),
-    ),
+    mandates: (policy.mandates ?? [])
+      .filter((mandate) =>
+        (policy.follows ?? []).some((leader) => leader.toLowerCase() === mandate.leader.toLowerCase()),
+      )
+      .map((mandate) => ({ ...mandate, riskBudgetUsd: mandate.riskBudgetUsd ?? defaults.riskBudgetUsd })),
   };
 }
 
@@ -399,15 +473,26 @@ export async function createProposal(strategyId: string, follower: `0x${string}`
     priceError = true;
   }
   const mandate = mandateFor(policy, strategy.leader);
-  const copyRatio = mandate?.sizingMode === "PROPORTIONAL"
-    ? mandate.copyRatio
-    : policy.copyRatio;
-  const requestedNotionalUsd = mandate?.sizingMode === "FIXED"
-    ? mandate.fixedNotionalUsd
-    : (sized?.notional ?? 0) * copyRatio;
-  const requestedQty = strategy.side === "sell"
-    ? requestedNotionalUsd / (sized?.price ?? 1)
-    : requestedNotionalUsd;
+  const sizingMode = mandate?.sizingMode ?? "PROPORTIONAL";
+  const riskBudgetUsd = mandate?.riskBudgetUsd ?? policy.riskBudgetUsd;
+  const stopRisk = sizingMode === "STOP_RISK"
+    ? stopRiskSizing(strategy, riskBudgetUsd)
+    : undefined;
+  const copyRatio = mandate?.sizingMode === "PROPORTIONAL" ? mandate.copyRatio : policy.copyRatio;
+  const requestedNotionalUsd =
+    sizingMode === "STOP_RISK"
+      ? stopRisk?.notionalUsd ?? 0
+      : mandate?.sizingMode === "FIXED"
+        ? mandate.fixedNotionalUsd
+        : (sized?.notional ?? 0) * copyRatio;
+  const requestedQty =
+    sizingMode === "STOP_RISK"
+      ? strategy.side === "buy"
+        ? stopRisk?.notionalUsd ?? 0
+        : stopRisk?.qty ?? 0
+      : strategy.side === "sell"
+        ? requestedNotionalUsd / (sized?.price ?? 1)
+        : requestedNotionalUsd;
   const effectivePolicy: Policy = mandate
     ? {
         ...policy,
@@ -433,14 +518,17 @@ export async function createProposal(strategyId: string, follower: `0x${string}`
     leaderPlanReasons: strategy.leaderPlanReasons,
     leaderFlashOrderId: strategy.leaderFlashOrderId,
     leaderEvidenceStatus: strategy.leaderEvidenceStatus,
-    copySizingMode: mandate?.sizingMode ?? "PROPORTIONAL",
+    copySizingMode: sizingMode,
+    riskBudgetUsd: sizingMode === "STOP_RISK" ? riskBudgetUsd : undefined,
+    stopRiskPerUnitUsd: stopRisk?.riskPerUnitUsd,
+    estimatedLossAtStopUsd: stopRisk?.estimatedLossAtStopUsd,
     followerExitMode: mandate?.exitMode ?? "FOLLOWER_BRACKET",
     chain: strategy.chain,
     targetAsset: strategy.targetAsset,
     contraAsset: strategy.contraAsset,
     side: strategy.side,
     orderType: strategy.orderType,
-    qty: formatQty(requestedQty),
+    qty: requestedQty > 0 ? formatQty(requestedQty) : "0",
     notionalUsd: requestedNotionalUsd,
     maxSlippage: strategy.orderType === "market" ? effectivePolicy.maxSlippage : undefined,
     maxPriceImpact:
@@ -448,14 +536,19 @@ export async function createProposal(strategyId: string, follower: `0x${string}`
         ? effectivePolicy.maxPriceImpact
         : undefined,
     durationSeconds: strategy.durationSeconds,
+    twapBucketCount: strategy.twapBucketCount,
+    startTime: strategy.startTime,
     limitNotionalPrice: strategy.limitNotionalPrice,
     triggers: strategy.triggers,
+    demoCase: strategy.demoCase,
     createdAt: new Date().toISOString(),
   };
 
   // Fail closed: a sell we cannot price is never sized or signed.
   const decision: Decision = priceError
     ? { verdict: "BLOCK", action: "DECLINE", reasons: ["PRICE_UNAVAILABLE"] }
+    : sizingMode === "STOP_RISK" && !stopRisk
+      ? { verdict: "BLOCK", action: "REVIEW", reasons: ["STOP_RISK_PLAN_INVALID"] }
     : decide(proposal, effectivePolicy, {
         dailySpentUsd: dailySpent(follower),
         leaderDailySpentUsd: leaderDailySpent(follower, strategy.leader),

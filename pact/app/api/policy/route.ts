@@ -23,10 +23,13 @@ export async function POST(req: Request) {
     (body.mandates ?? []).every(
       (mandate) =>
         (body.follows ?? []).some((leader) => leader.toLowerCase() === mandate.leader.toLowerCase()) &&
-        (mandate.sizingMode === "PROPORTIONAL" || mandate.sizingMode === "FIXED") &&
+        (mandate.sizingMode === "PROPORTIONAL" ||
+          mandate.sizingMode === "FIXED" ||
+          mandate.sizingMode === "STOP_RISK") &&
         mandate.copyRatio > 0 &&
         mandate.copyRatio <= 1 &&
         mandate.fixedNotionalUsd > 0 &&
+        mandate.riskBudgetUsd > 0 &&
         mandate.maxDailyUsd >= body.minNotionalUsd &&
         mandate.allowOrderTypes.length > 0 &&
         (mandate.exitMode === "FOLLOWER_BRACKET" || mandate.exitMode === "MANUAL"),
@@ -36,6 +39,7 @@ export async function POST(req: Request) {
     !(body.maxDailyUsd >= body.maxNotionalUsd) ||
     !(body.minNotionalUsd >= 0) ||
     !(body.copyRatio > 0 && body.copyRatio <= 1) ||
+    !(body.riskBudgetUsd > 0) ||
     !(body.maxLeaderDailyUsd >= body.minNotionalUsd) ||
     !(body.maxLeaderDailyRealizedLossUsd > 0) ||
     !(body.maxAssetExposureUsd >= body.minNotionalUsd) ||

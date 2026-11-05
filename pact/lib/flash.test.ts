@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { executionMetrics, getOrder, postCancel, quoteRequest } from "./flash";
+import { executionMetrics, fillExecutionMetrics, getOrder, postCancel, quoteRequest } from "./flash";
 import { cancelMessage } from "./typed";
 
 afterEach(() => vi.unstubAllGlobals());
@@ -83,6 +83,41 @@ describe("flash contracts", () => {
     expect(quoteRequest({ ...base, orderType: "market" }).expireTime).toBeUndefined();
   });
 
+  it("puts TWAP-only duration on the quote while preserving submit-echo fields", () => {
+    const q = quoteRequest({
+      targetAsset: "0x4200000000000000000000000000000000000006",
+      contraAsset: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+      side: "buy",
+      qty: "25",
+      orderType: "twap",
+      funderAddress: "0x2222222222222222222222222222222222222222",
+      durationSeconds: 600,
+      twapBucketCount: 6,
+      startTime: "2026-11-05T12:05:00.000Z",
+      limitNotionalPrice: "2512.5",
+    });
+    expect(q).toMatchObject({
+      durationSeconds: 600,
+      twapBucketCount: 6,
+      startTime: "2026-11-05T12:05:00.000Z",
+      limitNotionalPrice: "2512.5",
+    });
+    expect(q.expireTime).toBeUndefined();
+  });
+
+  it("rejects unsupported TWAP timing parameters before calling Flash", () => {
+    const base = {
+      targetAsset: "0x4200000000000000000000000000000000000006",
+      contraAsset: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+      side: "buy" as const,
+      qty: "25",
+      orderType: "twap" as const,
+      funderAddress: "0x2222222222222222222222222222222222222222",
+    };
+    expect(() => quoteRequest({ ...base, durationSeconds: 299 })).toThrow(/at least 300/);
+    expect(() => quoteRequest({ ...base, twapBucketCount: 1 })).toThrow(/2 to 2560/);
+  });
+
   it("includes an attached TP/SL bracket unchanged on a same-chain entry quote", () => {
     const q = quoteRequest({
       targetAsset: "0x4200000000000000000000000000000000000006",
@@ -116,5 +151,18 @@ describe("flash contracts", () => {
         "buy",
       ),
     ).toEqual({ estimatedPriceImpact: "0.0042", executionPrice: "2500" });
+  });
+
+  it("derives follower fill fidelity without claiming PnL", () => {
+    expect(
+      fillExecutionMetrics(
+        [
+          { fillPrice: "2505", notional: "25" },
+          { fillPrice: "2515", notional: "75" },
+        ],
+        "buy",
+        "2500",
+      ),
+    ).toEqual({ averageFillPrice: "2512.5", entryDriftBps: 50 });
   });
 });

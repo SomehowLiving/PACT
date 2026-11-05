@@ -14,6 +14,7 @@ export function LeadTicket() {
   const [orderType, setOrderType] = useState<OrderType>("twap");
   const [qty, setQty] = useState("25");
   const [duration, setDuration] = useState("600");
+  const [twapBucketCount, setTwapBucketCount] = useState("6");
   const [chain, setChain] = useState<Chain>("base");
   const [limitPrice, setLimitPrice] = useState("");
   const [triggerPrice, setTriggerPrice] = useState("");
@@ -66,13 +67,19 @@ export function LeadTicket() {
         chain,
         side: exit ? "sell" : side,
         limitNotionalPrice:
-          (payload?.orderType ?? orderType) === "limit" ? limitPrice : undefined,
+          ["limit", "twap"].includes(payload?.orderType ?? orderType) && limitPrice
+            ? limitPrice
+            : undefined,
         triggerPrice: exit ? triggerPrice : undefined,
         orderType: payload?.orderType ?? orderType,
         qty: payload?.qty ?? qty,
         durationSeconds:
           (payload?.orderType ?? orderType) === "twap"
             ? Number(payload?.durationSeconds ?? duration)
+            : undefined,
+        twapBucketCount:
+          (payload?.orderType ?? orderType) === "twap"
+            ? Number(twapBucketCount)
             : undefined,
       };
       const res = await fetch("/api/strategies", {
@@ -183,15 +190,20 @@ export function LeadTicket() {
             />
           </label>
 
-          {orderType === "limit" ? (
+          {orderType === "limit" || orderType === "twap" ? (
             <label className="text-[12px] text-mute">
-              limit price (USD per WETH)
+              execution price bound (USD per WETH, optional)
               <input
                 value={limitPrice}
                 onChange={(e) => setLimitPrice(e.target.value)}
                 placeholder="2300"
                 className="mt-1 w-full rounded-2xl bg-black/30 px-4 py-3 hairline text-ink outline-none"
               />
+              {orderType === "twap" ? (
+                <span className="mt-1 block text-[10px] text-mute">
+                  This is the leader’s bound. Each follower may tighten it using their entry-drift policy.
+                </span>
+              ) : null}
             </label>
           ) : null}
 
@@ -249,14 +261,25 @@ export function LeadTicket() {
           ) : null}
 
           {orderType === "twap" ? (
-            <label className="text-[12px] text-mute">
-              duration seconds
-              <input
-                value={duration}
-                onChange={(e) => setDuration(e.target.value)}
-                className="mt-1 w-full rounded-2xl bg-black/30 px-4 py-3 hairline text-ink outline-none"
-              />
-            </label>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <label className="text-[12px] text-mute">
+                duration seconds (minimum 300)
+                <input
+                  value={duration}
+                  onChange={(e) => setDuration(e.target.value)}
+                  className="mt-1 w-full rounded-2xl bg-black/30 px-4 py-3 hairline text-ink outline-none"
+                />
+              </label>
+              <label className="text-[12px] text-mute">
+                slices (2–2560)
+                <input
+                  value={twapBucketCount}
+                  onChange={(e) => setTwapBucketCount(e.target.value)}
+                  inputMode="numeric"
+                  className="mt-1 w-full rounded-2xl bg-black/30 px-4 py-3 hairline text-ink outline-none"
+                />
+              </label>
+            </div>
           ) : null}
 
           <div className="grid gap-4 sm:grid-cols-2">

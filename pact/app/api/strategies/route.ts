@@ -20,6 +20,8 @@ export async function POST(req: Request) {
     orderType?: OrderType;
     qty?: string;
     durationSeconds?: number;
+    twapBucketCount?: number;
+    startTime?: string;
     limitNotionalPrice?: string;
     triggerPrice?: string;
     targetAsset?: `0x${string}`;
@@ -81,6 +83,23 @@ export async function POST(req: Request) {
   if (orderType === "limit" && !(Number(body.limitNotionalPrice) > 0)) {
     return Response.json({ error: "limit price required" }, { status: 400 });
   }
+  if (orderType === "twap") {
+    const durationSeconds = body.durationSeconds ?? 600;
+    if (!Number.isInteger(durationSeconds) || durationSeconds < 300) {
+      return Response.json({ error: "TWAP duration must be at least 300 seconds" }, { status: 400 });
+    }
+    if (
+      body.twapBucketCount !== undefined &&
+      (!Number.isInteger(body.twapBucketCount) ||
+        body.twapBucketCount < 2 ||
+        body.twapBucketCount > 2560)
+    ) {
+      return Response.json({ error: "TWAP bucket count must be an integer from 2 to 2560" }, { status: 400 });
+    }
+    if (body.startTime && !Number.isFinite(Date.parse(body.startTime))) {
+      return Response.json({ error: "TWAP start time must be an ISO timestamp" }, { status: 400 });
+    }
+  }
 
   const entryReferencePrice =
     body.entryReferencePrice?.trim() ||
@@ -110,12 +129,12 @@ export async function POST(req: Request) {
     return Response.json({ error: "protection expiry must be in the future" }, { status: 400 });
   }
 
-  let leaderEvidenceStatus: "UNVERIFIED" | "VERIFIED" = "UNVERIFIED";
+  let leaderEvidenceStatus: "UNVERIFIED" | "ORDER_FOUND" = "UNVERIFIED";
   const leaderFlashOrderId = body.leaderFlashOrderId?.trim() || undefined;
   if (leaderFlashOrderId) {
     try {
       await getOrder(leaderFlashOrderId, body.leader);
-      leaderEvidenceStatus = "VERIFIED";
+      leaderEvidenceStatus = "ORDER_FOUND";
     } catch (e) {
       return Response.json(
         {
@@ -147,6 +166,8 @@ export async function POST(req: Request) {
     orderType,
     qty,
     durationSeconds: orderType === "twap" ? body.durationSeconds ?? 600 : undefined,
+    twapBucketCount: orderType === "twap" ? body.twapBucketCount : undefined,
+    startTime: orderType === "twap" ? body.startTime : undefined,
     limitNotionalPrice: body.limitNotionalPrice,
     triggers,
   }, leaderEvidenceStatus);

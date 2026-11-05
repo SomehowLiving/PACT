@@ -75,8 +75,14 @@ export async function POST(req: Request) {
             evmPermitSignature: body.attachedBracketPermitSignature,
           }
         : undefined,
-      limitNotionalPrice: proposal.limitNotionalPrice,
+      limitNotionalPrice: quote.effectiveLimitNotionalPrice,
       triggers: proposal.triggers,
+      ...(proposal.orderType === "twap" && proposal.twapBucketCount !== undefined
+        ? { twapBucketCount: proposal.twapBucketCount }
+        : {}),
+      ...(proposal.orderType === "twap" && proposal.startTime
+        ? { startTime: proposal.startTime }
+        : {}),
       ...(Number(INTEGRATOR_FEE_BPS) > 0
         ? { flashIntegratorFeeBps: INTEGRATOR_FEE_BPS }
         : {}),
@@ -91,6 +97,8 @@ export async function POST(req: Request) {
       quoteId: quote.quoteId,
       flashOrderId: order.orderId,
       status: "submitted",
+      quotedExecutionPrice: quote.executionPrice,
+      declaredEntryPrice: proposal.entryReferencePrice,
       notionalUsd: quote.notionalUsd ?? proposal.notionalUsd,
     });
 

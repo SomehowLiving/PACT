@@ -1,4 +1,4 @@
-import { getOrder } from "@/lib/flash";
+import { fillExecutionMetrics, getOrder } from "@/lib/flash";
 import { patchReceipt, snapshot } from "@/lib/store";
 
 export const dynamic = "force-dynamic";
@@ -17,6 +17,8 @@ export async function GET(
     const detail = await getOrder(id, receipt.follower);
     const fills = detail.fills ?? [];
     const tx = fills.find((f) => f.transactionId)?.transactionId;
+    const proposal = snapshot().proposals.find((item) => item.id === receipt.proposalId);
+    const fidelity = fillExecutionMetrics(fills, proposal?.side ?? "buy", receipt.declaredEntryPrice);
     patchReceipt(receipt.proposalId, {
       status: detail.order.status,
       closeReason: detail.order.closeReason ?? undefined,
@@ -25,6 +27,8 @@ export async function GET(
       // A TWAP produces one fill per slice, so slices done = fills so far.
       completedFillCount: fills.length,
       twapBucketCount: detail.order.twapBucketCount ?? undefined,
+      averageFillPrice: fidelity.averageFillPrice,
+      entryDriftBps: fidelity.entryDriftBps,
     });
     return Response.json({ order: detail.order, fills, transactionId: tx });
   } catch (e) {

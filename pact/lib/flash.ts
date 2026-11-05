@@ -46,6 +46,8 @@ export type QuoteBody = {
   orderType: OrderType;
   funderAddress: string;
   durationSeconds?: number;
+  twapBucketCount?: number;
+  startTime?: string;
   /** ISO end time. Resting orders only: Flash rejects it on TWAP and market orders. */
   expireTime?: string;
   limitNotionalPrice?: string;
@@ -109,6 +111,32 @@ export function executionMetrics(quote: FlashQuote, side: Side) {
   };
 }
 
+export function fillExecutionMetrics(
+  fills: Array<{ fillPrice?: string; notional?: string }>,
+  side: Side,
+  declaredEntryPrice?: string,
+) {
+  const priced = fills
+    .map((fill) => ({ price: Number(fill.fillPrice), weight: Number(fill.notional) }))
+    .filter((fill) => Number.isFinite(fill.price) && fill.price > 0);
+  if (!priced.length) return {};
+
+  const weighted = priced.filter((fill) => Number.isFinite(fill.weight) && fill.weight > 0);
+  const averageFillPrice = weighted.length
+    ? weighted.reduce((sum, fill) => sum + fill.price * fill.weight, 0) /
+      weighted.reduce((sum, fill) => sum + fill.weight, 0)
+    : priced.reduce((sum, fill) => sum + fill.price, 0) / priced.length;
+  const entry = Number(declaredEntryPrice);
+  const entryDriftBps =
+    Number.isFinite(entry) && entry > 0
+      ? ((side === "buy" ? averageFillPrice - entry : entry - averageFillPrice) / entry) * 10_000
+      : undefined;
+  return {
+    averageFillPrice: averageFillPrice.toString(),
+    entryDriftBps,
+  };
+}
+
 export function quoteRequest(
   input: Omit<
     QuoteBody,
@@ -134,6 +162,17 @@ export function quoteRequest(
   };
   if (input.orderType === "twap") {
     body.durationSeconds = input.durationSeconds ?? 600;
+    if (body.durationSeconds < 300) {
+      throw new Error("TWAP durationSeconds must be at least 300 seconds");
+    }
+    if (input.twapBucketCount !== undefined) {
+      if (!Number.isInteger(input.twapBucketCount) || input.twapBucketCount < 2 || input.twapBucketCount > 2560) {
+        throw new Error("TWAP twapBucketCount must be an integer from 2 to 2560");
+      }
+      body.twapBucketCount = input.twapBucketCount;
+    }
+    if (input.startTime) body.startTime = input.startTime;
+    if (input.limitNotionalPrice) body.limitNotionalPrice = input.limitNotionalPrice;
     body.maxPriceImpact = input.maxPriceImpact ?? "0.005";
   }
   if (input.attachedBracket) {

@@ -2,7 +2,13 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { assessLeaderPlan, decide, decideExecution } from "./policy";
+import {
+  assessLeaderPlan,
+  decide,
+  decideExecution,
+  effectiveLimitNotionalPrice,
+  stopRiskSizing,
+} from "./policy";
 import type { Policy, OrderType, Proposal, Side } from "./types";
 
 const root = dirname(fileURLToPath(import.meta.url));
@@ -294,5 +300,97 @@ describe("decide", () => {
       action: "WAIT",
       reasons: ["LEADER_LOSS_CIRCUIT_BREAKER"],
     });
+  });
+});
+
+describe("effectiveLimitNotionalPrice", () => {
+  const policy = { maxEntryDrift: "0.005" };
+
+  it("derives a hard maximum entry price for TWAP buys", () => {
+    expect(
+      effectiveLimitNotionalPrice(
+        {
+          side: "buy",
+          orderType: "twap",
+          entryReferencePrice: "2500",
+        },
+        policy,
+      ),
+    ).toBe("2512.5");
+  });
+
+  it("keeps a leader's stricter buy limit", () => {
+    expect(
+      effectiveLimitNotionalPrice(
+        {
+          side: "buy",
+          orderType: "twap",
+          entryReferencePrice: "2500",
+          limitNotionalPrice: "2505",
+        },
+        policy,
+      ),
+    ).toBe("2505");
+  });
+
+  it("derives a hard minimum entry price for sells", () => {
+    expect(
+      effectiveLimitNotionalPrice(
+        {
+          side: "sell",
+          orderType: "twap",
+          entryReferencePrice: "2500",
+        },
+        policy,
+      ),
+    ).toBe("2487.5");
+  });
+
+  it("does not invent a bound without a usable reference entry", () => {
+    expect(
+      effectiveLimitNotionalPrice(
+        {
+          side: "buy",
+          orderType: "twap",
+          limitNotionalPrice: "2500",
+        },
+        policy,
+      ),
+    ).toBe("2500");
+  });
+});
+
+describe("stopRiskSizing", () => {
+  it("sizes a buy from the declared entry, stop, and risk budget", () => {
+    expect(
+      stopRiskSizing(
+        { side: "buy", entryReferencePrice: "2500", stopLossPrice: "2450" },
+        2,
+      ),
+    ).toEqual({
+      notionalUsd: 100,
+      qty: 0.04,
+      riskPerUnitUsd: 50,
+      estimatedLossAtStopUsd: 2,
+    });
+  });
+
+  it("sizes a sell from a stop above entry", () => {
+    expect(
+      stopRiskSizing(
+        { side: "sell", entryReferencePrice: "2500", stopLossPrice: "2550" },
+        2,
+      ),
+    ).toMatchObject({ notionalUsd: 100, qty: 0.04, riskPerUnitUsd: 50 });
+  });
+
+  it("refuses an absent or incorrectly placed stop", () => {
+    expect(stopRiskSizing({ side: "buy", entryReferencePrice: "2500" }, 2)).toBeUndefined();
+    expect(
+      stopRiskSizing(
+        { side: "buy", entryReferencePrice: "2500", stopLossPrice: "2550" },
+        2,
+      ),
+    ).toBeUndefined();
   });
 });

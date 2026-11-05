@@ -13,7 +13,7 @@ People follow traders because they want access to a repeatable strategy, not mer
 PACT treats copying as a **portfolio allocation decision**:
 
 1. Leaders publish a plan with a thesis, reference entry, invalidation, stop, target, entry expiry, and follower capacity.
-2. Followers choose up to three leaders and configure a mandate for each: proportional or fixed sizing, daily sleeve, allowed order types, and follower-managed exit behavior.
+2. Followers choose up to three leaders and configure a mandate for each: proportional, fixed-dollar, or stop-risk sizing; daily sleeve; allowed order types; and follower-managed exit behavior.
 3. For every proposed trade, PACT returns `COPY`, `SCALE`, `WAIT`, `DECLINE`, or `REVIEW`.
 4. The follower re-checks the Flash typed data in their browser and signs with their own wallet.
 5. Definitive Flash executes the order. Eligible buy entries can attach a Flash TP/SL bracket.
@@ -54,6 +54,7 @@ The default demo policy on Base is intentionally conservative:
 | --- | ---: |
 | Selected leaders | Up to 3 |
 | Default copy mandate | 25% proportional, Flash TP/SL exit |
+| Default stop-risk budget | $2 planned loss at declared stop |
 | Per-order maximum | $30 |
 | Daily copy budget | $50 |
 | Per-leader daily sleeve | $25 |
@@ -61,7 +62,7 @@ The default demo policy on Base is intentionally conservative:
 | Same-asset / same-side exposure | $35 |
 | Open plans | 3 total, 1 per leader |
 | Allowed entries | TWAP and limit buys |
-| Max entry drift | 1% |
+| Max entry drift | 1% (converted into a follower-specific Flash price bound for TWAP/limit execution when a reference entry exists) |
 | Max quote price impact | 0.5% |
 | Max slippage | 1% |
 
@@ -79,9 +80,22 @@ approved = min(
 )
 ```
 
+When a follower selects **stop-risk sizing**, PACT instead derives target units
+from the leader’s declared entry and stop, then applies the same caps:
+
+```text
+risk per target unit = abs(entry - stop)
+target units = follower risk budget / risk per target unit
+buy qty in Flash = target units × entry (USDC)
+sell qty in Flash = target units
+```
+
+This is planned loss at the declared stop, not guaranteed maximum loss. Gaps,
+partial fills, and execution costs can increase realized loss.
+
 Hard rule failures—unsupported chain, pair, type, side, expired plan, missing required invalidation, structurally invalid plan, or optional evidence requirement—refuse the trade before a wallet prompt. A reward:risk below the follower's preference is a caution unless that follower enables the stricter gate. A size-only overage can be scaled when the follower enables it.
 
-Each selected leader can override the default with a fixed-dollar or proportional copy size, a leader-specific daily sleeve, a narrower set of permitted order types, and one of two current follower exit modes: **Flash TP/SL bracket** or **manual exit**. PACT does not yet mirror a leader's exit as an executable action, so it does not claim that mode is available.
+Each selected leader can override the default with a fixed-dollar, proportional, or stop-risk budget; a leader-specific daily sleeve; a narrower set of permitted order types; and one of two current follower exit modes: **Flash TP/SL bracket** or **manual exit**. PACT does not yet mirror a leader's exit as an executable action, so it does not claim that mode is available.
 
 PACT also has an opt-in per-leader realized-loss circuit breaker. When enabled and recorded
 realized losses on closed PACT receipts reach the follower's daily threshold, new proposals
@@ -89,15 +103,19 @@ from that leader return `WAIT`. Flash currently provides order and fill informat
 than account-level P&L, so this breaker only activates when a trusted P&L evidence source
 records the receipt; PACT does not fabricate P&L from an open position.
 
-### Multi-leader simulation
+### Policy simulation matrix
 
-The Floor's **simulated portfolio run** uses persisted demo data and the same policy function as the real copy path:
+The Floor's **policy simulation matrix** uses persisted demo data and the same policy function as the real copy path. It demonstrates seven deterministic outcomes:
 
 - Leader one proposes an $80 TWAP: follower requests $20 and can copy it.
 - Leader two proposes a $120 limit: follower requests $30 but is scaled to the $25 leader sleeve.
 - Leader three proposes a $40 market order: follower requests $10 but is declined because market entries are not enabled.
+- An expired entry window returns `WAIT` before quoting.
+- A 1:1 reward:risk plan is marked `CAUTION` but remains eligible unless the follower opts into the strict plan-quality gate.
+- A follower who requires leader execution evidence gets `REVIEW` for a plan without a Flash order found under the publishing leader’s wallet. This does not claim that the order terms match the plan.
+- An unsupported high-beta asset is declined by the explicit pair allowlist.
 
-This is a policy simulation only. It is not a claim that orders were sent or that a strategy made money.
+This is a policy simulation only. It is not a claim that orders were sent, an asset is executable, or a strategy made money. Current executable pair coverage is WETH/USDC on Base and Arc; the high-beta row exists to prove the refusal path.
 
 ### Definitive Flash execution
 
@@ -112,6 +130,10 @@ PACT integrates:
 - attached Flash TP/SL bracket signing for eligible buy entries.
 
 Base is the primary integration. Arc is represented in the app configuration but has not been live-tested.
+
+### Live market context
+
+For the current Base WETH/USDC demo pair, proposal review fetches actual five-minute OHLCV candles from the highest-liquidity WETH/USDC Base pool returned by GeckoTerminal. PACT caches that public feed for 60 seconds, renders its source and freshness, and overlays declared entry, stop, and target only when they fall inside the visible range. This is market context for a follower's review; Flash remains the execution and quote source, so the chart must not be presented as a guaranteed execution price or route.
 
 ## Trust and Security Model
 
@@ -132,8 +154,8 @@ PACT is hackathon MVP software, not a production investment product.
 
 ## Demo Flow
 
-1. Open the Floor and select **load demo tape**.
-2. Show **same trade, your rules**: one leader trade produces different follower outcomes.
+1. Open the Floor and select **load demo scenario**.
+2. Open **demo lab** and show the seven deterministic decisions, including the approved amount and the exact rule triggered.
 3. Show **one follower, three leaders, one risk budget**: one copy, one scaled copy, one type-gated refusal.
 4. Publish a disciplined leader plan from **Lead**.
 5. In **Follow**, select leaders and set the multiplier, portfolio budget, leader sleeve, exposure, and execution thresholds.

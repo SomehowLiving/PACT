@@ -1,7 +1,7 @@
 import { INTEGRATOR_FEE_BPS } from "@/lib/constants";
 import { executionMetrics, postQuote, quoteRequest } from "@/lib/flash";
 import { verifySigning } from "@/lib/guard";
-import { decideExecution } from "@/lib/policy";
+import { decideExecution, effectiveLimitNotionalPrice } from "@/lib/policy";
 import {
   decisionFor,
   openSpendUnits,
@@ -48,6 +48,8 @@ export async function POST(req: Request) {
 
   const qty = decision.modifiedQty ?? proposal.qty;
   const attachedBracket = attachedBracketFor(proposal);
+  const policy = policyFor(proposal.follower);
+  const effectiveLimit = effectiveLimitNotionalPrice(proposal, policy);
 
   try {
     const quote = await postQuote(
@@ -60,7 +62,9 @@ export async function POST(req: Request) {
         orderType: proposal.orderType,
         funderAddress: proposal.follower,
         durationSeconds: proposal.durationSeconds,
-        limitNotionalPrice: proposal.limitNotionalPrice,
+        twapBucketCount: proposal.twapBucketCount,
+        startTime: proposal.startTime,
+        limitNotionalPrice: effectiveLimit,
         triggers: proposal.triggers,
         maxSlippage: proposal.maxSlippage,
         maxPriceImpact: proposal.maxPriceImpact,
@@ -68,7 +72,7 @@ export async function POST(req: Request) {
       }),
     );
     const metrics = executionMetrics(quote, proposal.side);
-    const executionDecision = decideExecution(proposal, policyFor(proposal.follower), metrics);
+    const executionDecision = decideExecution(proposal, policy, metrics);
     if (executionDecision) {
       updateDecision(proposal.id, executionDecision);
       return Response.json(
@@ -132,6 +136,8 @@ export async function POST(req: Request) {
         : proposal.notionalUsd,
       estimatedPriceImpact: metrics.estimatedPriceImpact,
       executionPrice: metrics.executionPrice,
+      declaredLimitNotionalPrice: proposal.limitNotionalPrice,
+      effectiveLimitNotionalPrice: effectiveLimit,
       attachedBracket:
         attachedBracket && quote.attachedBracket
           ? {

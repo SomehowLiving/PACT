@@ -35,6 +35,72 @@ export type ExecutionMetrics = {
   executionPrice?: string;
 };
 
+export type StopRiskSizing = {
+  notionalUsd: number;
+  qty: number;
+  riskPerUnitUsd: number;
+  estimatedLossAtStopUsd: number;
+};
+
+function decimal(value: number) {
+  return value.toFixed(8).replace(/\.?(?:0+)$/, "");
+}
+
+/**
+ * Converts a follower's maximum entry drift into a Flash execution limit.
+ * A buy gets a maximum price; a sell gets a minimum price. If a leader has
+ * already declared a stricter bound, PACT preserves the stricter of the two.
+ */
+export function effectiveLimitNotionalPrice(
+  proposal: Pick<Proposal, "side" | "orderType" | "entryReferencePrice" | "limitNotionalPrice">,
+  policy: Pick<Policy, "maxEntryDrift">,
+) {
+  if (!["twap", "limit"].includes(proposal.orderType)) return proposal.limitNotionalPrice;
+
+  const entry = n(proposal.entryReferencePrice);
+  const drift = n(policy.maxEntryDrift);
+  const declared = n(proposal.limitNotionalPrice);
+  if (!(entry && entry > 0) || drift === undefined || drift < 0) {
+    return proposal.limitNotionalPrice;
+  }
+
+  const followerBound =
+    proposal.side === "buy" ? entry * (1 + drift) : entry * (1 - drift);
+  if (!Number.isFinite(followerBound) || followerBound <= 0) return proposal.limitNotionalPrice;
+
+  const effective =
+    declared === undefined
+      ? followerBound
+      : proposal.side === "buy"
+        ? Math.min(declared, followerBound)
+        : Math.max(declared, followerBound);
+  return decimal(effective);
+}
+
+/**
+ * Converts declared entry/stop and a follower risk budget into a copy size.
+ * This is a planned-loss estimate, not a guarantee against gaps or partial fills.
+ */
+export function stopRiskSizing(
+  plan: Pick<Proposal, "side" | "entryReferencePrice" | "stopLossPrice">,
+  riskBudgetUsd: number,
+): StopRiskSizing | undefined {
+  const entry = n(plan.entryReferencePrice);
+  const stop = n(plan.stopLossPrice);
+  if (!(entry && entry > 0) || !(stop && stop > 0) || !Number.isFinite(riskBudgetUsd) || riskBudgetUsd <= 0) {
+    return undefined;
+  }
+  const correctlyPlaced = plan.side === "buy" ? stop < entry : stop > entry;
+  if (!correctlyPlaced) return undefined;
+  const riskPerUnitUsd = Math.abs(entry - stop);
+  const qty = riskBudgetUsd / riskPerUnitUsd;
+  const notionalUsd = qty * entry;
+  if (!Number.isFinite(qty) || qty <= 0 || !Number.isFinite(notionalUsd) || notionalUsd <= 0) {
+    return undefined;
+  }
+  return { notionalUsd, qty, riskPerUnitUsd, estimatedLossAtStopUsd: riskBudgetUsd };
+}
+
 type LeaderPlanInput = {
   side: Side;
   entryReferencePrice?: string;
@@ -136,7 +202,7 @@ export function decide(
       return { verdict: "BLOCK", action: "REVIEW", reasons: assessment.reasons };
     }
   }
-  if (policy.requireLeaderExecutionEvidence && proposal.leaderEvidenceStatus !== "VERIFIED") {
+  if (policy.requireLeaderExecutionEvidence && proposal.leaderEvidenceStatus !== "ORDER_FOUND") {
     return { verdict: "BLOCK", action: "REVIEW", reasons: ["LEADER_EXECUTION_UNVERIFIED"] };
   }
   if (

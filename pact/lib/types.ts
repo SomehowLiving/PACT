@@ -10,9 +10,21 @@ export type OrderType =
 export type Verdict = "ALLOW" | "MODIFY" | "BLOCK";
 export type CopyAction = "COPY" | "SCALE" | "WAIT" | "DECLINE" | "REVIEW";
 export type LeaderPlanGrade = "DISCIPLINED" | "CAUTION" | "INCOMPLETE";
-export type LeaderEvidenceStatus = "UNVERIFIED" | "VERIFIED";
-export type CopySizingMode = "PROPORTIONAL" | "FIXED";
+/**
+ * ORDER_FOUND proves Flash returned an order when queried with the publishing
+ * leader as funder. It does not prove the order parameters match this plan.
+ */
+export type LeaderEvidenceStatus = "UNVERIFIED" | "ORDER_FOUND";
+export type CopySizingMode = "PROPORTIONAL" | "FIXED" | "STOP_RISK";
 export type FollowerExitMode = "FOLLOWER_BRACKET" | "MANUAL";
+export type DemoCase =
+  | "CORE_TWAP_COPY"
+  | "SLEEVE_SCALE"
+  | "MARKET_REFUSAL"
+  | "EXPIRED_PLAN"
+  | "LOW_RR_CAUTION"
+  | "EVIDENCE_REVIEW"
+  | "HIGH_BETA_PAIR_REFUSAL";
 
 export type LeaderMandate = {
   leader: `0x${string}`;
@@ -21,6 +33,8 @@ export type LeaderMandate = {
   copyRatio: number;
   /** Used when sizingMode is FIXED. */
   fixedNotionalUsd: number;
+  /** Used when sizingMode is STOP_RISK. Maximum planned loss at the declared stop. */
+  riskBudgetUsd: number;
   maxDailyUsd: number;
   allowOrderTypes: OrderType[];
   /** FOLLOWER_BRACKET attaches Flash TP/SL when the leader plan supports one. */
@@ -71,8 +85,13 @@ export type Strategy = {
   orderType: OrderType;
   qty: string;
   durationSeconds?: number;
+  /** Optional Flash TWAP tranche count; copied unchanged into order submission. */
+  twapBucketCount?: number;
+  /** Optional Flash TWAP start time; copied unchanged into order submission. */
+  startTime?: string;
   limitNotionalPrice?: string;
   triggers?: Trigger[];
+  demoCase?: DemoCase;
   createdAt: string;
 };
 
@@ -92,6 +111,8 @@ export type Policy = {
   maxPriceImpact: string;
   /** Follower size as a fraction of the leader order's notional. */
   copyRatio: number;
+  /** Maximum planned loss at the declared stop when stop-risk sizing is selected. */
+  riskBudgetUsd: number;
   /** Maximum daily copied notional attributable to one leader. */
   maxLeaderDailyUsd: number;
   /** Stop accepting new copies from one leader after this much recorded realized loss today. */
@@ -139,6 +160,9 @@ export type Proposal = {
   leaderFlashOrderId?: string;
   leaderEvidenceStatus: LeaderEvidenceStatus;
   copySizingMode: CopySizingMode;
+  riskBudgetUsd?: number;
+  stopRiskPerUnitUsd?: number;
+  estimatedLossAtStopUsd?: number;
   followerExitMode: FollowerExitMode;
   chain: Chain;
   targetAsset: `0x${string}`;
@@ -150,8 +174,11 @@ export type Proposal = {
   maxSlippage?: string;
   maxPriceImpact?: string;
   durationSeconds?: number;
+  twapBucketCount?: number;
+  startTime?: string;
   limitNotionalPrice?: string;
   triggers?: Trigger[];
+  demoCase?: DemoCase;
   createdAt: string;
 };
 
@@ -162,7 +189,12 @@ export type Decision = {
   modifiedQty?: string;
 };
 
-export type Fill = { transactionId?: string; fillPrice?: string; notional?: string };
+export type Fill = {
+  transactionId?: string;
+  fillPrice?: string;
+  notional?: string;
+  filledAt?: string;
+};
 
 export type Receipt = {
   id: string;
@@ -178,6 +210,10 @@ export type Receipt = {
   status?: string;
   transactionId?: string;
   closeReason?: string;
+  quotedExecutionPrice?: string;
+  declaredEntryPrice?: string;
+  averageFillPrice?: string;
+  entryDriftBps?: number;
   /** Realized P&L from a completed PACT position when an evidence source supplies it. */
   realizedPnlUsd?: number;
   notionalUsd: number;
@@ -194,6 +230,10 @@ export type StoredQuote = {
   notionalUsd?: number;
   estimatedPriceImpact?: string;
   executionPrice?: string;
+  /** Leader-declared price bound, before a follower policy may make it stricter. */
+  declaredLimitNotionalPrice?: string;
+  /** Price bound actually quoted to Flash after applying follower entry-drift policy. */
+  effectiveLimitNotionalPrice?: string;
   attachedBracket?: {
     bracket: AttachedBracket;
     salt?: string;

@@ -2,12 +2,15 @@
 
 import { Gauge } from "@/components/Gauge";
 import { CopyActionPill } from "@/components/CopyActionPill";
+import { ExecutionLevels } from "@/components/ExecutionLevels";
+import { MarketChart } from "@/components/MarketChart";
 import { useDesk } from "@/components/useDesk";
 import { defaultPolicy, WETH } from "@/lib/constants";
 import { CHAINS, CHAIN_IDS } from "@/lib/chains";
 import { verifySigning, type GuardResult } from "@/lib/guard";
 import { cancelMessage, parseOrderTypedData } from "@/lib/typed";
 import { reasonLabel, shortAddr, usd } from "@/lib/format";
+import Link from "next/link";
 import type {
   Chain,
   Decision,
@@ -33,7 +36,7 @@ const PREVIEW_POLICY = defaultPolicy(
   "0x0000000000000000000000000000000000000000",
 );
 
-export function FollowDesk() {
+export function FollowDesk({ reviewProposalId }: { reviewProposalId?: string }) {
   const { address, isConnected } = useAccount();
   const { state, refresh } = useDesk(address);
   const [pulling, setPulling] = useState(false);
@@ -105,6 +108,34 @@ export function FollowDesk() {
       {},
     ),
   );
+  const approvedCapacity = concentration.reduce((sum, item) => sum + item.notionalUsd, 0);
+
+  if (reviewProposalId) {
+    const proposal = tape.find((item) => item.id === reviewProposalId);
+    if (!proposal) {
+      return (
+        <section className="terminal-panel p-6">
+          <div className="terminal-kicker">review unavailable</div>
+          <h1 className="mt-2 text-xl font-semibold">Proposal not found</h1>
+          <p className="mt-2 text-sm text-mute">
+            This proposal is not in the current local PACT store. Return to mandates and mirror
+            open intents again.
+          </p>
+          <Link href="/follower" className="btn-cream mt-5 inline-block rounded-md px-4 py-2 text-sm">
+            back to mandates
+          </Link>
+        </section>
+      );
+    }
+    return (
+      <ReviewWorkspace
+        proposal={proposal}
+        decision={state?.decisions[proposal.id]}
+        receipt={state?.receipts.find((item) => item.proposalId === proposal.id)}
+        onDone={refresh}
+      />
+    );
+  }
 
   return (
     <div className="grid gap-5 lg:grid-cols-[0.85fr_1.15fr]">
@@ -136,6 +167,7 @@ export function FollowDesk() {
           <Row k="max / order" v={usd(policy.maxNotionalUsd)} />
           <Row k="daily" v={usd(policy.maxDailyUsd)} />
           <Row k="copy size" v={`${Math.round(policy.copyRatio * 100)}% of leader`} />
+          <Row k="stop-risk budget" v={`${usd(policy.riskBudgetUsd)} / plan`} />
           <Row k="leaders selected" v={`${policy.follows?.length ?? 0} / 3`} />
           <Row k="per-leader sleeve" v={usd(policy.maxLeaderDailyUsd)} />
           <Row
@@ -161,7 +193,7 @@ export function FollowDesk() {
                 <div key={item.label} className="flex items-center justify-between gap-3">
                   <span className="text-ink">{item.label}</span>
                   <span className="text-mute">
-                    {usd(item.notionalUsd)} · {item.leaders.size} leader{item.leaders.size === 1 ? "" : "s"}
+                    {usd(item.notionalUsd)} · {approvedCapacity > 0 ? Math.round((item.notionalUsd / approvedCapacity) * 100) : 0}% · {item.leaders.size} leader{item.leaders.size === 1 ? "" : "s"}
                   </span>
                 </div>
               ))}
@@ -170,6 +202,7 @@ export function FollowDesk() {
             <p className="mt-2 text-[12px] text-mute">No allowed copy intents yet.</p>
           )}
           <p className="mt-2 text-[10px] leading-relaxed text-mute">
+            {approvedCapacity ? `Approved capacity ${usd(approvedCapacity)}. ` : ""}
             PACT shows same-asset, same-side concentration. It does not claim a statistical
             correlation estimate from insufficient history.
           </p>
@@ -230,6 +263,130 @@ export function FollowDesk() {
   );
 }
 
+function ReviewWorkspace({
+  proposal,
+  decision,
+  receipt,
+  onDone,
+}: {
+  proposal: Proposal;
+  decision?: Decision;
+  receipt?: CardReceipt;
+  onDone: () => Promise<void>;
+}) {
+  const supportsLiveMarket =
+    proposal.chain === "base" && proposal.targetAsset.toLowerCase() === WETH.toLowerCase();
+  const expiresAt = new Date(proposal.expiresAt);
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-end justify-between gap-3 border-b border-line pb-4">
+        <div>
+          <div className="terminal-kicker">copy review</div>
+          <h1 className="mt-1 text-2xl font-semibold tracking-tight">{proposal.title}</h1>
+          <p className="mt-1 text-sm text-mute">
+            Review the leader declaration, market context, and your exact execution authority
+            before requesting a Flash quote.
+          </p>
+        </div>
+        <Link
+          href="/follower"
+          className="border border-line px-3 py-2 font-mono text-[10px] uppercase tracking-[0.08em] text-mute transition hover:border-gold hover:text-gold"
+        >
+          back to mandates
+        </Link>
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-[0.82fr_1.55fr_0.92fr]">
+        <aside className="terminal-panel p-4">
+          <div className="terminal-kicker">leader declaration</div>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <span className="font-mono text-xs uppercase text-ink">
+              {proposal.orderType} {proposal.side}
+            </span>
+            <span className="border border-line px-2 py-0.5 font-mono text-[10px] uppercase text-mute">
+              {proposal.chain}
+            </span>
+            {decision ? <CopyActionPill action={decision.action} verdict={decision.verdict} /> : null}
+          </div>
+          <p className="mt-4 text-sm leading-relaxed text-ink/90">{proposal.thesis}</p>
+          <dl className="mt-5 space-y-0 border-y border-line text-xs">
+            <ReviewRow k="leader" v={shortAddr(proposal.leader)} />
+            <ReviewRow
+              k="entry window"
+              v={Number.isFinite(expiresAt.valueOf()) ? expiresAt.toLocaleString() : "invalid"}
+            />
+            <ReviewRow k="plan grade" v={proposal.leaderPlanGrade.toLowerCase()} />
+            <ReviewRow
+              k="execution evidence"
+              v={proposal.leaderEvidenceStatus.toLowerCase()}
+            />
+            <ReviewRow
+              k="invalidation"
+              v={proposal.invalidation?.trim() || "not declared"}
+              wrap
+            />
+          </dl>
+          {proposal.leaderPlanReasons.length ? (
+            <div className="mt-3 flex flex-wrap gap-1.5">
+              {proposal.leaderPlanReasons.map((reason) => (
+                <span key={reason} className="border border-rose/40 px-2 py-1 font-mono text-[10px] text-rose">
+                  {reasonLabel(reason)}
+                </span>
+              ))}
+            </div>
+          ) : null}
+        </aside>
+
+        <section className="terminal-panel overflow-hidden">
+          {supportsLiveMarket ? (
+            <>
+              <MarketChart
+                entry={proposal.entryReferencePrice}
+                stop={proposal.stopLossPrice}
+                target={proposal.takeProfitPrice}
+              />
+              <div className="border-t border-line">
+                <ExecutionLevels
+                  side={proposal.side}
+                  entry={proposal.entryReferencePrice}
+                  stop={proposal.stopLossPrice}
+                  target={proposal.takeProfitPrice}
+                />
+              </div>
+            </>
+          ) : (
+            <div className="p-5">
+              <div className="terminal-kicker">market context unavailable</div>
+              <p className="mt-2 text-sm leading-relaxed text-mute">
+                PACT currently renders a real DEX chart only for Base WETH/USDC. This proposal
+                can still be policy-reviewed, but it does not get a substituted or generated chart.
+              </p>
+            </div>
+          )}
+        </section>
+
+        <ProposalCard
+          proposal={proposal}
+          decision={decision}
+          receipt={receipt}
+          onDone={onDone}
+          reviewMode
+        />
+      </div>
+    </div>
+  );
+}
+
+function ReviewRow({ k, v, wrap = false }: { k: string; v: string; wrap?: boolean }) {
+  return (
+    <div className={`flex gap-3 border-b border-line px-0 py-2.5 last:border-b-0 ${wrap ? "items-start" : "items-center justify-between"}`}>
+      <dt className="shrink-0 font-mono text-[10px] uppercase tracking-[0.08em] text-mute">{k}</dt>
+      <dd className={`text-right text-ink ${wrap ? "leading-relaxed" : "truncate"}`}>{v}</dd>
+    </div>
+  );
+}
+
 function Row({ k, v }: { k: string; v: string }) {
   return (
     <div className="flex items-center justify-between border-b border-white/6 py-2">
@@ -276,9 +433,13 @@ type CardReceipt = {
   transactionId?: string;
   status?: string;
   closeReason?: string;
-  fills?: { transactionId?: string; fillPrice?: string; notional?: string }[];
+  fills?: { transactionId?: string; fillPrice?: string; notional?: string; filledAt?: string }[];
   completedFillCount?: number;
   twapBucketCount?: number;
+  quotedExecutionPrice?: string;
+  declaredEntryPrice?: string;
+  averageFillPrice?: string;
+  entryDriftBps?: number;
 };
 
 function ProposalCard({
@@ -286,11 +447,13 @@ function ProposalCard({
   decision,
   receipt,
   onDone,
+  reviewMode = false,
 }: {
   proposal: Proposal;
   decision?: Decision;
   receipt?: CardReceipt;
   onDone: () => Promise<void>;
+  reviewMode?: boolean;
 }) {
   const { address } = useAccount();
   const publicClient = usePublicClient();
@@ -305,6 +468,12 @@ function ProposalCard({
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [approveHash, setApproveHash] = useState<`0x${string}` | undefined>();
+  const [executionQuote, setExecutionQuote] = useState<{
+    executionPrice?: string;
+    estimatedPriceImpact?: string;
+    declaredLimitNotionalPrice?: string;
+    effectiveLimitNotionalPrice?: string;
+  } | null>(null);
   const blocked = !decision || decision.verdict === "BLOCK";
   const isFollower = Boolean(
     address && address.toLowerCase() === proposal.follower.toLowerCase(),
@@ -359,12 +528,22 @@ function ProposalCard({
         orderTypedData?: string;
         permitTypedData?: string;
         approveTx?: { to: `0x${string}`; data: `0x${string}` };
+        executionPrice?: string;
+        estimatedPriceImpact?: string;
+        declaredLimitNotionalPrice?: string;
+        effectiveLimitNotionalPrice?: string;
         attachedBracket?: {
           orderTypedData?: string;
           permitTypedData?: string;
           approveTx?: { to: `0x${string}`; data: `0x${string}` };
         };
       };
+      setExecutionQuote({
+        executionPrice: quote.executionPrice,
+        estimatedPriceImpact: quote.estimatedPriceImpact,
+        declaredLimitNotionalPrice: quote.declaredLimitNotionalPrice,
+        effectiveLimitNotionalPrice: quote.effectiveLimitNotionalPrice,
+      });
       mark("quote", "done");
 
       // Independent check in the browser, before any wallet prompt. Does not trust the server.
@@ -554,21 +733,36 @@ function ProposalCard({
             {proposal.durationSeconds ? ` · ${proposal.durationSeconds / 60}m` : ""}
             {proposal.triggers?.[0] ? ` · trigger $${proposal.triggers[0].notionalPrice}` : ""}
             {decision?.modifiedQty ? ` · clipped to ${decision.modifiedQty}` : ""}
+            {proposal.copySizingMode === "STOP_RISK" && proposal.estimatedLossAtStopUsd
+              ? ` · planned stop risk ${usd(proposal.estimatedLossAtStopUsd)}`
+              : ""}
             {` · ${(proposal.copySizingMode ?? "PROPORTIONAL").toLowerCase()} copy · ${(proposal.followerExitMode ?? "FOLLOWER_BRACKET") === "FOLLOWER_BRACKET" ? "Flash bracket" : "manual exit"}`}
           </div>
         </div>
-        <button
-          type="button"
-          disabled={!canSign}
-          onClick={() => void run()}
-          className={`rounded-full px-4 py-2 text-[13px] ${
-            canSign ? "btn-cream" : "cursor-not-allowed bg-white/5 text-mute"
-          }`}
-        >
-          {lockLabel}
-        </button>
+        <div className="flex shrink-0 items-center gap-2">
+          {!reviewMode ? (
+            <Link
+              href={`/review/${proposal.id}`}
+              className="border border-line px-3 py-2 font-mono text-[10px] uppercase tracking-[0.08em] text-mute transition hover:border-gold hover:text-gold"
+            >
+              review
+            </Link>
+          ) : null}
+          {reviewMode ? (
+            <button
+              type="button"
+              disabled={!canSign}
+              onClick={() => void run()}
+              className={`rounded-full px-4 py-2 text-[13px] ${
+                canSign ? "btn-cream" : "cursor-not-allowed bg-white/5 text-mute"
+              }`}
+            >
+              {lockLabel}
+            </button>
+          ) : null}
+        </div>
       </div>
-      <div className="mt-3 rounded-2xl bg-black/20 p-3 hairline">
+      {!reviewMode ? <div className="mt-3 rounded-2xl bg-black/20 p-3 hairline">
         <p className="text-[12px] text-ink/90">{proposal.thesis}</p>
         <p className="mt-1 text-[11px] text-mute">
           Copy window ends{" "}
@@ -607,7 +801,7 @@ function ProposalCard({
             })}
           </p>
         ) : null}
-      </div>
+      </div> : null}
       {decision?.reasons.length ? (
         <div className="mt-3 flex flex-wrap gap-2">
           {decision.reasons.map((r) => (
@@ -644,6 +838,32 @@ function ProposalCard({
       ) : null}
 
       {guard ? <GuardPanel result={guard} /> : null}
+      {executionQuote ? (
+        <div className="mt-4 border border-line bg-black/20 p-3">
+          <div className="terminal-kicker">Flash quote terms</div>
+          <dl className="mt-2 space-y-0 text-xs">
+            <ReviewRow
+              k="quoted execution price"
+              v={executionQuote.executionPrice ? `$${Number(executionQuote.executionPrice).toLocaleString("en-US", { maximumFractionDigits: 4 })}` : "not returned"}
+            />
+            <ReviewRow
+              k="Flash price impact"
+              v={executionQuote.estimatedPriceImpact ? `${(Number(executionQuote.estimatedPriceImpact) * 100).toFixed(3)}%` : "not returned"}
+            />
+            <ReviewRow
+              k="leader price bound"
+              v={executionQuote.declaredLimitNotionalPrice ? `$${executionQuote.declaredLimitNotionalPrice}` : "none"}
+            />
+            <ReviewRow
+              k="your execution bound"
+              v={executionQuote.effectiveLimitNotionalPrice ? `$${executionQuote.effectiveLimitNotionalPrice}` : "none"}
+            />
+          </dl>
+          <p className="mt-2 text-[10px] leading-relaxed text-mute">
+            The bound is sent to Flash for this quote; it is not a chart prediction or a guaranteed fill.
+          </p>
+        </div>
+      ) : null}
       {msg ? <p className="mt-3 text-[12px] text-mute">{msg}</p> : null}
       {approveHash ? (
         <a
@@ -676,6 +896,22 @@ function ProposalCard({
             ) : null}
           </div>
           <div className="mt-1 font-mono text-[10px] text-mute">order {receipt.flashOrderId}</div>
+          {(receipt.quotedExecutionPrice || receipt.averageFillPrice) ? (
+            <dl className="mt-3 border-y border-line text-[11px]">
+              <ReviewRow
+                k="quoted price"
+                v={receipt.quotedExecutionPrice ? `$${Number(receipt.quotedExecutionPrice).toLocaleString("en-US", { maximumFractionDigits: 4 })}` : "not recorded"}
+              />
+              <ReviewRow
+                k="average fill"
+                v={receipt.averageFillPrice ? `$${Number(receipt.averageFillPrice).toLocaleString("en-US", { maximumFractionDigits: 4 })}` : "waiting for fill"}
+              />
+              <ReviewRow
+                k="entry drift"
+                v={receipt.entryDriftBps === undefined ? "waiting for fill" : `${receipt.entryDriftBps >= 0 ? "+" : ""}${receipt.entryDriftBps.toFixed(1)} bps`}
+              />
+            </dl>
+          ) : null}
           {progress !== null ? (
             <div className="mt-3">
               <div className="h-1.5 overflow-hidden rounded-full bg-white/10">
@@ -784,6 +1020,7 @@ function defaultMandate(leader: `0x${string}`, policy: Policy): LeaderMandate {
     sizingMode: "PROPORTIONAL",
     copyRatio: policy.copyRatio,
     fixedNotionalUsd: policy.minNotionalUsd,
+    riskBudgetUsd: policy.riskBudgetUsd,
     maxDailyUsd: policy.maxLeaderDailyUsd,
     allowOrderTypes: [...policy.allowOrderTypes],
     exitMode: "FOLLOWER_BRACKET",
@@ -865,6 +1102,11 @@ function PolicyEditor({
           label="copy size %"
           value={Math.round(draft.copyRatio * 100)}
           onChange={(v) => setDraft({ ...draft, copyRatio: v / 100 })}
+        />
+        <NumField
+          label="stop-risk / plan $"
+          value={draft.riskBudgetUsd}
+          onChange={(v) => setDraft({ ...draft, riskBudgetUsd: v })}
         />
         <NumField
           label="per leader / day $"
@@ -1022,21 +1264,32 @@ function PolicyEditor({
                         >
                           <option value="PROPORTIONAL">proportional</option>
                           <option value="FIXED">fixed USD</option>
+                          <option value="STOP_RISK">stop-risk budget</option>
                         </select>
                       </label>
                       <NumField
-                        label={mandate.sizingMode === "PROPORTIONAL" ? "copy size %" : "fixed / trade $"}
+                        label={
+                          mandate.sizingMode === "PROPORTIONAL"
+                            ? "copy size %"
+                            : mandate.sizingMode === "FIXED"
+                              ? "fixed / trade $"
+                              : "risk at stop $"
+                        }
                         value={
                           mandate.sizingMode === "PROPORTIONAL"
                             ? Math.round(mandate.copyRatio * 100)
-                            : mandate.fixedNotionalUsd
+                            : mandate.sizingMode === "FIXED"
+                              ? mandate.fixedNotionalUsd
+                              : mandate.riskBudgetUsd
                         }
                         onChange={(value) =>
                           updateMandate(
                             leader,
                             mandate.sizingMode === "PROPORTIONAL"
                               ? { copyRatio: value / 100 }
-                              : { fixedNotionalUsd: value },
+                              : mandate.sizingMode === "FIXED"
+                                ? { fixedNotionalUsd: value }
+                                : { riskBudgetUsd: value },
                           )
                         }
                       />
@@ -1046,6 +1299,12 @@ function PolicyEditor({
                         onChange={(value) => updateMandate(leader, { maxDailyUsd: value })}
                       />
                     </div>
+                    {mandate.sizingMode === "STOP_RISK" ? (
+                      <p className="mt-2 text-[10px] leading-relaxed text-mute">
+                        PACT sizes from the leader’s declared entry and stop, then applies your
+                        sleeve and portfolio caps. A stop is not a guaranteed maximum loss.
+                      </p>
+                    ) : null}
                     <div className="mt-2 flex flex-wrap gap-1">
                       {TYPES.map((type) => {
                         const enabled = mandate.allowOrderTypes.includes(type);

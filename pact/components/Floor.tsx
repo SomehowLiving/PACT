@@ -1,8 +1,7 @@
 "use client";
 
 import { DotMeter, Sparkline } from "@/components/Sparkline";
-import { Desks } from "@/components/Desks";
-import { PortfolioSimulation } from "@/components/PortfolioSimulation";
+import { DemoLab } from "@/components/DemoLab";
 import { Gauge } from "@/components/Gauge";
 import { Orb } from "@/components/Orb";
 import { VerdictPill } from "@/components/VerdictPill";
@@ -10,8 +9,10 @@ import { useDesk, type DeskPayload } from "@/components/useDesk";
 import { reasonLabel, shortAddr, usd } from "@/lib/format";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { useAccount } from "wagmi";
 
 type Filter = "all" | "ALLOW" | "BLOCK";
+type DashboardMode = "portfolio" | "demo";
 
 type Health = {
   ok?: boolean;
@@ -37,8 +38,10 @@ function blockedSpark(state: DeskPayload | null): { pts: number[]; labels: strin
 }
 
 export function Floor() {
-  const { state, refresh } = useDesk();
+  const { address } = useAccount();
+  const { state, refresh } = useDesk(address);
   const [filter, setFilter] = useState<Filter>("all");
+  const [mode, setMode] = useState<DashboardMode>("portfolio");
   const [seeding, setSeeding] = useState(false);
   const [health, setHealth] = useState<Health | null>(null);
 
@@ -49,14 +52,21 @@ export function Floor() {
       .catch(() => setHealth({ ok: false }));
   }, []);
 
-  const policy = state?.policies[0];
+  const policy = state?.policies.find(
+    (item) => address && item.follower.toLowerCase() === address.toLowerCase(),
+  ) ?? state?.policies[0];
   const maxDaily = policy?.maxDailyUsd ?? 50;
   const spent = state?.dailySpentUsd ?? 0;
   const remaining = Math.max(0, maxDaily - spent);
   const blocked = state?.blockedNotionalUsd ?? 0;
   const spark = blockedSpark(state);
 
-  const rows = useMemo(() => state?.proposals ?? [], [state?.proposals]);
+  const rows = useMemo(() => {
+    const proposals = state?.proposals ?? [];
+    if (mode === "demo") return proposals;
+    if (!address) return [];
+    return proposals.filter((proposal) => proposal.follower.toLowerCase() === address.toLowerCase());
+  }, [address, mode, state?.proposals]);
   const allows = rows.filter((p) => state?.decisions[p.id]?.verdict === "ALLOW").length;
   const blocks = rows.filter((p) => state?.decisions[p.id]?.verdict === "BLOCK").length;
   const shown = useMemo(() => {
@@ -70,6 +80,7 @@ export function Floor() {
     setSeeding(true);
     try {
       await fetch("/api/demo", { method: "POST" });
+      setMode("demo");
       await refresh();
     } finally {
       setSeeding(false);
@@ -83,19 +94,19 @@ export function Floor() {
 
   return (
     <div className="grid gap-5 lg:grid-cols-[1.4fr_0.9fr]">
-      <section className="glass overflow-hidden rounded-[32px] p-6 md:p-8">
+      <section className="glass overflow-hidden rounded-xl p-5 md:p-6">
         <div className="flex items-start justify-between">
           <div>
-            <div className="text-[11px] uppercase tracking-[0.22em] text-gold">
+            <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-gold">
               your copy portfolio
             </div>
-            <h1 className="mt-2 font-[family-name:var(--font-serif)] text-[28px] italic leading-none md:text-[36px]">
-              Allocate with intent.
+            <h1 className="mt-2 text-[26px] font-semibold leading-none tracking-tight md:text-[32px]">
+              Copy execution control
             </h1>
-            <div className="text-[11px] uppercase tracking-[0.22em] text-mute">
+            <div className="mt-5 font-mono text-[10px] uppercase tracking-[0.14em] text-mute">
               remaining today
             </div>
-            <div className="num mt-2 font-[family-name:var(--font-serif)] text-[52px] leading-none md:text-[64px]">
+            <div className="num mt-2 font-mono text-[46px] font-medium leading-none md:text-[54px]">
               {usd(remaining)}
             </div>
             <div className="mt-2 text-sm text-mute">
@@ -112,21 +123,21 @@ export function Floor() {
           <span className="text-ink">{usd(blocked)}</span>
         </div>
         <div className="mt-5 flex flex-wrap gap-2">
-          <Link href="/follower" className="btn-cream rounded-full px-4 py-2 text-[12px]">
+          <Link href="/follower" className="btn-cream rounded-md px-4 py-2 text-[12px]">
             set leader mandates
           </Link>
           <button
             type="button"
             disabled={seeding}
             onClick={() => void loadDemo()}
-            className="rounded-full bg-white/8 px-4 py-2 text-[12px] text-ink hairline"
+            className="rounded-md bg-white/8 px-4 py-2 text-[12px] text-ink hairline"
           >
             {seeding ? "loading scenario…" : "load demo scenario"}
           </button>
         </div>
       </section>
 
-      <section className="glass rounded-[32px] p-6">
+      <section className="glass rounded-xl p-5">
         <div className="flex items-center justify-between">
           <div>
             <div className="text-[13px] text-mute">execution budget</div>
@@ -143,21 +154,42 @@ export function Floor() {
           sub={`${usd(spent)} spent`}
         />
         <div className="mt-2 grid grid-cols-2 gap-3 text-[12px] text-mute">
-          <div className="rounded-2xl bg-black/25 p-3 hairline">
+          <div className="bg-black/25 p-3 hairline">
             per order
             <div className="mt-1 text-ink">{usd(policy?.maxNotionalUsd ?? 30)}</div>
           </div>
-          <div className="rounded-2xl bg-black/25 p-3 hairline">
+          <div className="bg-black/25 p-3 hairline">
             chain
             <div className="mt-1 text-ink">base</div>
           </div>
         </div>
       </section>
 
-      <PortfolioSimulation state={state} />
-      <Desks state={state} />
+      <section className="glass rounded-xl p-2 lg:col-span-2">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex bg-black/30 p-1 hairline">
+            <ModeButton on={mode === "portfolio"} onClick={() => setMode("portfolio")}>
+              your portfolio
+            </ModeButton>
+            <ModeButton on={mode === "demo"} onClick={() => setMode("demo")}>
+              demo lab
+            </ModeButton>
+          </div>
+          <p className="px-2 text-[11px] text-mute">
+            {mode === "portfolio"
+              ? address
+                ? "Your mandates, exposure, and pending decisions."
+                : "Connect a wallet to view your personal copy portfolio."
+              : "Illustrative policy outcomes. No orders are sent."}
+          </p>
+        </div>
+      </section>
 
-      <section className="glass rounded-[32px] p-6 lg:col-span-2">
+      {mode === "demo" ? (
+        <DemoLab state={state} />
+      ) : null}
+
+      <section className="glass rounded-xl p-5 lg:col-span-2">
         <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
           <div className="text-[15px] tracking-tight">today’s tape</div>
           <div className="flex flex-wrap items-center gap-2 text-[12px]">
@@ -243,6 +275,28 @@ export function Floor() {
         refuses anything the policy did not allow.
       </p>
     </div>
+  );
+}
+
+function ModeButton({
+  on,
+  onClick,
+  children,
+}: {
+  on: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`px-3 py-2 text-[12px] transition ${
+        on ? "bg-white/10 text-ink" : "text-mute"
+      }`}
+    >
+      {children}
+    </button>
   );
 }
 

@@ -27,6 +27,7 @@ export function defaultPolicy(follower: `0x${string}`): Policy {
     maxSlippage: "0.01",
     maxPriceImpact: "0.005",
     copyRatio: 0.25,
+    riskBudgetUsd: 2,
     maxLeaderDailyUsd: 25,
     maxLeaderDailyRealizedLossUsd: 10,
     maxAssetExposureUsd: 35,

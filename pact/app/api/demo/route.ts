@@ -20,5 +20,11 @@ export async function POST(req: Request) {
       reasons: d.decision.reasons,
       qty: d.proposal.qty,
     })),
+    cases: [...seeded.portfolio, ...seeded.edgeCases].map((entry) => ({
+      case: entry.proposal.demoCase,
+      verdict: entry.decision.verdict,
+      action: entry.decision.action,
+      reasons: entry.decision.reasons,
+    })),
   });
 }
