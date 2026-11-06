@@ -581,8 +581,8 @@ function LeaderPanel({
             </linearGradient>
           </defs>
           <rect width="440" height="96" fill="url(#pact-sky)" />
-          <path d="M150 96 L250 30 L285 46 L330 8 L380 40 L440 22 L440 96 Z" fill="url(#pact-peak)" />
-          <path d="M150 96 L250 30 L285 46 L330 8 L380 40 L440 22" fill="none" stroke="#e8d6b8" strokeOpacity="0.35" />
+          <path d="M150 96 C166.7 85 227.5 38.3 250 30 C272.5 21.7 271.7 49.7 285 46 C298.3 42.3 314.2 9 330 8 C345.8 7 361.7 37.7 380 40 C398.3 42.3 430 25 440 22 L440 96 Z" fill="url(#pact-peak)" />
+          <path d="M150 96 C166.7 85 227.5 38.3 250 30 C272.5 21.7 271.7 49.7 285 46 C298.3 42.3 314.2 9 330 8 C345.8 7 361.7 37.7 380 40 C398.3 42.3 430 25 440 22" fill="none" stroke="#e8d6b8" strokeOpacity="0.35" />
         </svg>
       </div>
       <div className="relative z-10 -mt-9 flex flex-wrap items-end justify-between gap-3 px-5">

@@ -560,8 +560,8 @@ function Rail({ path, onNavigate }: { path: string; onNavigate?: () => void }) {
             <stop offset="1" stopColor="#0d0b09" stopOpacity="0" />
           </linearGradient>
         </defs>
-        <path d="M0 70 L40 52 L70 64 L110 30 L140 50 L175 38 L210 58 L240 46 L240 120 L0 120 Z" fill="url(#ridge)" />
-        <path d="M0 70 L40 52 L70 64 L110 30 L140 50 L175 38 L210 58 L240 46" fill="none" stroke="#b08d5b" strokeOpacity="0.35" strokeWidth="1" />
+        <path d="M0 70 C6.7 67 28.3 53 40 52 C51.7 51 58.3 67.7 70 64 C81.7 60.3 98.3 32.3 110 30 C121.7 27.7 129.2 48.7 140 50 C150.8 51.3 163.3 36.7 175 38 C186.7 39.3 199.2 56.7 210 58 C220.8 59.3 235 48 240 46 L240 120 L0 120 Z" fill="url(#ridge)" />
+        <path d="M0 70 C6.7 67 28.3 53 40 52 C51.7 51 58.3 67.7 70 64 C81.7 60.3 98.3 32.3 110 30 C121.7 27.7 129.2 48.7 140 50 C150.8 51.3 163.3 36.7 175 38 C186.7 39.3 199.2 56.7 210 58 C220.8 59.3 235 48 240 46" fill="none" stroke="#b08d5b" strokeOpacity="0.35" strokeWidth="1" />
       </svg>
     </nav>
   );
