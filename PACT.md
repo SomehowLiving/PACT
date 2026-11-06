@@ -10,7 +10,7 @@ a session key they created and limited on chain), and Flash executes it.
 PACT does not hold a private key, custody funds, promise returns, or claim that copying a
 profitable leader makes a follower profitable.
 
-Built for ETHGlobal Mumbai 2026.
+Built for ETHGlobal Mumbai 2026. **Live:** https://ethglobal-pact.vercel.app
 
 > **Status (Nov 6, 2026).** Everything below is built and covered by tests. The follower
 > flow has been run end to end against live Flash on Base and Arc with throwaway wallets:
@@ -465,6 +465,13 @@ npm run e2e                                 # against a running server (PACT_URL
 node e2e/ui.e2e.mjs
 WORLD_ENV=staging npm run dev & npm run e2e:world
 ```
+
+**Hosted (Vercel).** `pact/vercel.json` declares Next.js; `pact/.vercelignore` keeps `.env*`,
+`.data` and build output out of uploads. Production sets `PACT_STORE_FILE=/tmp/pact/store.json`
+(Vercel's only writable disk), `PACT_SESSION_SECRET`, `PACT_AUTOSEED=1` (an empty store seeds
+the live-priced DEMO desks on first read), `FLASH_API_KEY` and the `WORLD_*` values. `/tmp` is
+per instance and temporary, so hosted desks, plans and receipts can reset when Vercel recycles
+the server (Flash keeps every order); use a local server for the real-money test.
 
 Run end-to-end tests against an isolated server and store, e.g. `NEXT_DIST_DIR=.next-e2e
 PACT_STORE_FILE=/tmp/pact-e2e/store.json npx next dev -p 3920`, never against the store
