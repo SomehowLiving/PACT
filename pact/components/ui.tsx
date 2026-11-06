@@ -55,10 +55,10 @@ export function PageHeader({
   actions?: ReactNode;
 }) {
   return (
-    <div className="mb-5 flex flex-wrap items-end justify-between gap-4" data-eyebrow={eyebrow}>
+    <div className="mb-6 flex flex-wrap items-end justify-between gap-4" data-eyebrow={eyebrow}>
       <div className="min-w-0">
-        <h1 className="text-[20px] font-semibold tracking-[-0.01em] text-ink">{title}</h1>
-        {description ? <p className="mt-1 max-w-[760px] text-[13px] text-mute">{description}</p> : null}
+        <h1 className="font-[family-name:var(--font-serif)] text-[36px] font-medium leading-[1.1] tracking-[0.005em] text-ink md:text-[44px]">{title}</h1>
+        {description ? <p className="mt-2 max-w-[760px] text-[14px] leading-relaxed text-ink/70">{description}</p> : null}
       </div>
       {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
     </div>
@@ -170,7 +170,7 @@ export function StatusBadge({
   const name: IconName | undefined = icon ? ((GLYPH_ICON[icon] ?? icon) as IconName) : undefined;
   return (
     <span
-      className={`inline-flex h-[20px] items-center gap-1 rounded-[5px] px-1.5 text-[10px] font-semibold uppercase leading-none tracking-[0.05em] ${TONE_CLASS[tone]}`}
+      className={`inline-flex h-[24px] items-center gap-1 rounded-full px-2.5 text-[11.5px] font-medium leading-none tracking-[0.01em] ${TONE_CLASS[tone]}`}
     >
       {name ? <StatusIcon name={name} /> : null}
       {children}

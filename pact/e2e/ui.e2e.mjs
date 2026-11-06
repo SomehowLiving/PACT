@@ -19,19 +19,21 @@ p.on("pageerror", (e) => errs.push(`${p.url()}: ${e.message}`));
 p.on("console", (m) => { if (m.type() === "error" && !/Failed to load resource|favicon/.test(m.text())) errs.push(`${p.url()}: ${m.text().slice(0, 160)}`); });
 
 await p.goto(`${BASE}/discover`, { waitUntil: "networkidle" });
-await p.getByText("Leader table").waitFor();
-check("no sidebar navigation", (await p.locator("aside").count()) === 0);
+await p.locator("main table").first().waitFor();
+const rail = p.locator('nav[aria-label="Workspace"]');
+const railText = await rail.innerText();
+check("left rail holds the follower sections", ["Leaders", "Following", "Watchlist", "My Plans", "Mandate", "Settings"].every((t) => railText.includes(t)), railText);
 const headerNav = p.locator('nav[aria-label="Workspaces"] a');
 const labels = (await headerNav.allInnerTexts()).map((x) => x.replace(/\s*\d+$/, "").trim());
-check("header has exactly the five workspaces", JSON.stringify(labels) === JSON.stringify(["Trade", "Discover", "Plans", "Portfolio", "Orders"]), JSON.stringify(labels));
-check("Discover shows its local tabs", (await p.locator('nav[aria-label="Discover views"]').innerText()).includes("All leaders"));
+check("header has exactly the five workspaces", JSON.stringify(labels) === JSON.stringify(["Trade", "Discover", "Proposals", "Portfolio", "Orders"]), JSON.stringify(labels));
+check("Discover marks Leaders in the rail", (await rail.locator('a[aria-current="page"]').innerText()).includes("Leaders"));
 await p.screenshot({ path: OUT + "1-discover-desktop.png" });
 
 await p.getByRole("tab", { name: /Disciplined/ }).click().catch(async () => p.getByText("Disciplined").first().click());
 await p.waitForTimeout(300);
 check("filter chip writes the URL", p.url().includes("view=disciplined"), p.url());
 await p.reload({ waitUntil: "networkidle" });
-await p.getByText("Leader table").waitFor();
+await p.locator("main table").first().waitFor();
 await p.waitForTimeout(400);
 check("filter survives a refresh", p.url().includes("view=disciplined") && (await p.locator('[role="tab"][aria-selected="true"]').first().innerText()).includes("Disciplined"), await p.locator('[role="tab"][aria-selected="true"]').first().innerText().catch(() => "?"));
 
@@ -41,7 +43,7 @@ await leaderLink.click();
 await p.waitForURL(/\/leaders\//);
 await p.getByText("Copyability for your desk").waitFor({ timeout: 15000 });
 check("leader name opens the canonical profile", p.url().endsWith(href), p.url());
-check("profile is in the Discover workspace", (await p.locator('nav[aria-label="Discover views"]').count()) === 1);
+check("profile is in the Leaders section", (await rail.locator('a[aria-current="page"]').innerText()).includes("Leaders"));
 await p.screenshot({ path: OUT + "2-leader-overview.png" });
 await p.locator('main [role="tab"]', { hasText: "Plans" }).first().click();
 await p.waitForTimeout(400);
@@ -57,14 +59,15 @@ await p.goForward({ waitUntil: "networkidle" });
 await p.waitForTimeout(500);
 check("browser forward returns to the profile", p.url().includes("/leaders/"), p.url());
 
-await p.getByRole("button", { name: /Demo desk|Account|0x/ }).first().click();
+await p.getByRole("button", { name: /Account menu|0x/ }).first().click();
 await p.getByRole("menu").waitFor();
 const menu = await p.getByRole("menu").innerText();
-check("account menu holds wallet value, desk and settings", ["Demo desk", "Mandate & risk", "Wallet & Autopilot", "Desk overview", "Demo lab"].every((t) => menu.includes(t)));
+check("account menu holds settings, activity and tools", ["Desk overview", "Activity log", "Mandate & risk", "Wallet & Autopilot", "Preferences", "Demo lab", "Classic desk"].every((t) => menu.includes(t)), menu.replace(/\n/g, " · "));
+check("desk picker is in the header", (await p.locator('header select[aria-label="Desk to view"]').count()) === 1);
 await p.screenshot({ path: OUT + "4-account-menu.png" });
 await p.keyboard.press("Escape");
 
-await p.locator('button', { hasText: /^(Copy|Edit)$/ }).first().click();
+await p.locator('main button', { hasText: /^(Follow|Edit mandate)$/ }).first().click();
 await p.waitForTimeout(600);
 check("Follow opens the copy configuration drawer", (await p.getByText(/Sizing|sizing/).count()) > 0);
 await p.screenshot({ path: OUT + "5-follow-drawer.png" });
@@ -79,8 +82,19 @@ for (const r of routes) {
 }
 check("every existing route still loads", bad.length === 0, bad.join(", ") || `${routes.length} routes`);
 await p.goto(`${BASE}/proposals`, { waitUntil: "networkidle" });
-check("Plans workspace tabs on the inbox", (await p.locator('nav[aria-label="Plans views"]').innerText()).includes("My published plans"));
+check("Proposals is the active workspace on the inbox", (await p.locator('nav[aria-label="Workspaces"] a[aria-current="page"]').innerText()).includes("Proposals"));
 await p.screenshot({ path: OUT + "6-plans-inbox.png" });
+await p.goto(`${BASE}/portfolio`, { waitUntil: "networkidle" });
+await p.getByText("Allocated Sleeve").waitFor();
+const portfolioText = await p.locator("main").innerText();
+check("Portfolio shows its summary tiles", ["Total Value", "Open PnL", "Allocated Sleeve", "Active Leaders"].every((t) => portfolioText.includes(t)));
+await p.getByRole("tab", { name: "By Leader" }).click();
+check("Portfolio tabs switch views", (await p.getByText("Remaining capacity").count()) > 0);
+await p.screenshot({ path: OUT + "9-portfolio.png" });
+await p.goto(`${BASE}/execution`, { waitUntil: "networkidle" });
+const ordersText = await p.locator("main").innerText();
+check("Orders page loads (table or empty state)", ordersText.includes("Total Orders") || ordersText.includes("No Flash orders yet"));
+await p.screenshot({ path: OUT + "10-orders.png" });
 
 const tab = await b.newContext({ viewport: { width: 900, height: 1100 } });
 await tab.addInitScript(() => localStorage.setItem("pact.viewAs", "0x7777777777777777777777777777777777777777"));
@@ -89,7 +103,7 @@ await t.goto(`${BASE}/discover`, { waitUntil: "networkidle" });
 await t.screenshot({ path: OUT + "7-discover-tablet.png" });
 await t.getByRole("button", { name: "Open navigation" }).click();
 await t.getByRole("dialog", { name: "Navigation" }).waitFor();
-check("tablet: one navigation, in a drawer", (await t.getByRole("dialog", { name: "Navigation" }).innerText()).includes("Orders & receipts"));
+check("tablet: one navigation, in a drawer", (await t.getByRole("dialog", { name: "Navigation" }).innerText()).includes("Orders") && (await t.getByRole("dialog", { name: "Navigation" }).innerText()).includes("Activity log"));
 await t.screenshot({ path: OUT + "8-tablet-drawer.png" });
 const overflow = await t.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
 check("tablet: no horizontal page scroll", !overflow);

@@ -2,7 +2,6 @@
 
 import { Gauge } from "@/components/Gauge";
 import { CopyActionPill } from "@/components/CopyActionPill";
-import { ExecutionLevels } from "@/components/ExecutionLevels";
 import { LeaderPanel } from "@/components/LeaderPanel";
 import { TradingChart } from "@/components/TradingChart";
 import { useDeskContext } from "@/components/DeskContext";
@@ -13,7 +12,7 @@ import { defaultPolicy, WETH } from "@/lib/constants";
 import { CHAINS, CHAIN_IDS } from "@/lib/chains";
 import { bracketPriceFloor, verifyBracketSigning, verifySigning, type GuardResult } from "@/lib/guard";
 import { batchCancelMessage, cancelMessage, parseOrderTypedData } from "@/lib/typed";
-import { protectionCancellable, stillLive } from "@/lib/views";
+import { capacity, protectionCancellable, relativeTime, stillLive } from "@/lib/views";
 import { reasonLabel, shortAddr, usd } from "@/lib/format";
 import Link from "next/link";
 import type {
@@ -38,6 +37,7 @@ import {
   useSignTypedData,
 } from "wagmi";
 import { apiFetch } from "@/lib/api";
+import { mandateFor } from "@/components/pages/following-actions";
 import { EvidenceBadge } from "@/components/pages/discover-parts";
 import { ReferencePrices } from "@/components/ReferencePrices";
 import { SignalList } from "@/components/SignalList";
@@ -359,184 +359,211 @@ export function ReviewWorkspace({
     },
   ];
 
+  // Derived checks shown as a checklist. The binding decision is the server's (badge above);
+  // these restate the mandate limits the decision applied, from the same policy fields.
+  const cap = state && followerPolicy ? capacity(state, followerPolicy) : undefined;
+  const sleeve = cap?.sleeves.find((x) => x.leader.toLowerCase() === proposal.leader.toLowerCase());
+  const mandate = followerPolicy ? mandateFor(followerPolicy, proposal.leader) : undefined;
+  const pct = (a?: string, b?: string) => (Number(a) > 0 && Number(b) > 0 ? ((Number(b) - Number(a)) / Number(a)) * 100 : undefined);
+  const rr =
+    Number(proposal.entryReferencePrice) > 0 && Number(proposal.stopLossPrice) > 0 && Number(proposal.takeProfitPrice) > 0
+      ? Math.abs(Number(proposal.takeProfitPrice) - Number(proposal.entryReferencePrice)) / Math.abs(Number(proposal.entryReferencePrice) - Number(proposal.stopLossPrice))
+      : undefined;
+  const reasons = new Set(decision?.reasons ?? []);
+  const checks: { label: string; ok: boolean }[] = followerPolicy
+    ? [
+        {
+          label: `Order type allowed (${proposal.orderType.toUpperCase()})`,
+          ok: (mandate?.allowOrderTypes ?? followerPolicy.allowOrderTypes).includes(proposal.orderType) && !reasons.has("ORDER_TYPE_NOT_ALLOWED"),
+        },
+        { label: `Chain allowed (${proposal.chain})`, ok: (followerPolicy.allowChains ?? []).includes(proposal.chain) && !reasons.has("CHAIN_NOT_ALLOWED") },
+        {
+          label: `Within the per-order cap (${usd(proposal.notionalUsd)} ≤ ${usd(followerPolicy.maxNotionalUsd)})`,
+          ok: proposal.notionalUsd <= followerPolicy.maxNotionalUsd,
+        },
+        ...(sleeve
+          ? [
+              {
+                label: `Within the daily sleeve (${usd(sleeve.used + (blocked ? 0 : proposal.notionalUsd))} / ${usd(sleeve.max)})`,
+                ok: sleeve.used + proposal.notionalUsd <= sleeve.max,
+              },
+            ]
+          : []),
+        ...(rr !== undefined ? [{ label: `Reward : risk ${rr.toFixed(2)} ≥ ${followerPolicy.minRewardRisk}`, ok: rr >= followerPolicy.minRewardRisk }] : []),
+        ...(boundsEntry && bound ? [{ label: `Entry bound sent to Flash (≤ ${(Number(followerPolicy.maxEntryDrift) * 100).toFixed(2)}% drift)`, ok: true }] : []),
+        { label: bracket ? "Exit protection: Flash TP/SL bracket" : "Exit: manual (no bracket)", ok: bracket || proposal.followerExitMode === "MANUAL" },
+      ]
+    : [];
+  const verdictLine =
+    !decision
+      ? "No decision"
+      : decision.verdict === "ALLOW"
+        ? "PASS (Copy)"
+        : decision.verdict === "MODIFY"
+          ? "PASS (Scale)"
+          : decision.action === "WAIT"
+            ? "WAIT"
+            : decision.action === "REVIEW"
+              ? "REVIEW"
+              : "DECLINE";
+
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-end justify-between gap-3">
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-end justify-between gap-4">
         <div className="min-w-0">
-          <nav className="label flex items-center gap-1.5" aria-label="Breadcrumb">
-            <Link href="/proposals" className="hover:text-ink">
-              Proposals
-            </Link>
-            <span aria-hidden>/</span>
-            <span className="text-ink/80">Review</span>
-          </nav>
-          <div className="mt-1 flex flex-wrap items-center gap-2.5">
-            <h1 className="text-[22px] font-semibold tracking-tight text-ink">{proposal.title}</h1>
+          <Link href="/proposals" className="inline-flex items-center gap-2 text-[13.5px] text-ink/75 hover:text-ink">
+            <span aria-hidden>←</span> Back to Proposals
+          </Link>
+          <div className="mt-3 flex flex-wrap items-center gap-3">
+            <h1 className="font-[family-name:var(--font-serif)] text-[38px] font-medium leading-none text-ink">Proposal Review</h1>
             {decision ? <ActionBadge action={decision.action} verdict={decision.verdict} /> : null}
           </div>
-          <p className="mt-1 flex flex-wrap items-center gap-2 text-[12.5px] text-mute">
-            <AddrAvatar value={proposal.leader} size={18} />
-            leader <Addr value={proposal.leader} className="text-ink" />
-            <span aria-hidden>·</span> follower <Addr value={proposal.follower} className="text-ink" />
-          </p>
+          <p className="mt-2 text-[14px] text-ink/70">Review the trade, policy checks and execution quote before signing.</p>
         </div>
-        <ol className="flex flex-wrap items-center gap-1.5 text-[11.5px] text-mute" aria-label="Review steps">
-          {["Plan vs your order", "Policy checks", "Flash quote", "Wallet signing"].map((step, i) => (
-            <li key={step} className="flex items-center gap-1.5">
-              <span className="flex h-5 w-5 items-center justify-center rounded-full border border-line font-mono text-[10px] text-ink">{i + 1}</span>
-              {step}
-              {i < 3 ? <span aria-hidden className="text-line">—</span> : null}
-            </li>
-          ))}
-        </ol>
+        <div className="flex items-center gap-3 text-[13px]">
+          <AddrAvatar value={proposal.leader} size={40} />
+          <span className="text-mute">From</span>
+          <Link href={`/leaders/${proposal.leader}`} className="font-medium text-ink hover:text-accent">
+            Leader {proposal.leader.slice(2, 6).toUpperCase()}
+          </Link>
+          <Addr value={proposal.leader} />
+          <span className="ml-3 text-mute">{relativeTime(proposal.createdAt)}</span>
+        </div>
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(340px,1fr)]">
-        <Panel
-          title="Leader's plan vs your order"
-          subtitle="What the leader declared, and what your mandate turns it into"
-          layer="policy"
-        >
-          <div className="overflow-x-auto">
-            <table className="tbl">
-              <thead>
-                <tr>
-                  <th className="w-[110px]">Field</th>
-                  <th>Leader declared</th>
-                  <th>Your order</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((r) => (
-                  <tr key={r.k}>
-                    <td className="text-mute">{r.k}</td>
-                    <td className="text-ink/90">{r.leader}</td>
-                    <td className={r.changed ? "text-warn" : "text-ink"}>
-                      {r.yours}
-                      {r.changed ? <span className="ml-1.5 font-mono text-[9.5px] uppercase text-mute">adjusted</span> : null}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </Panel>
-
-        <Panel title="Policy checks" subtitle="Your mandate's decision for this plan" layer="policy" bodyClassName="px-4 py-3">
-          {decision ? (
-            <>
-              <div className="flex items-center gap-2">
-                <ActionBadge action={decision.action} verdict={decision.verdict} />
-                <span className="text-[12.5px] text-ink">
-                  {decision.verdict === "ALLOW"
-                    ? "Fits every limit in your mandate."
-                    : decision.verdict === "MODIFY"
-                      ? "Allowed after scaling to your cap."
-                      : decision.action === "WAIT"
-                        ? "Held. Not executable right now."
-                        : decision.action === "REVIEW"
-                          ? "Needs your review before it can proceed."
-                          : "Refused by your mandate."}
-                </span>
-              </div>
-              {decision.reasons.length ? (
-                <ul className="mt-3 space-y-1.5">
-                  {decision.reasons.map((reason) => (
-                    <li key={reason} className="flex items-center gap-2 text-[12px]">
-                      <span aria-hidden className={decision.verdict === "BLOCK" ? "text-bad" : "text-warn"}>
-                        {decision.verdict === "BLOCK" ? "✕" : "!"}
-                      </span>
-                      <span className="font-mono text-ink/90">{reasonLabel(reason)}</span>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="mt-3 text-[12px] text-mute">No limits were hit.</p>
-              )}
-            </>
+      <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1.5fr)_minmax(340px,1fr)]">
+        <Panel className="overflow-hidden">
+          {supportsLiveMarket ? (
+            <TradingChart
+              entry={proposal.entryReferencePrice}
+              stop={proposal.stopLossPrice}
+              target={proposal.takeProfitPrice}
+              bound={boundsEntry ? bound : undefined}
+              height={330}
+              fitLevels
+            />
           ) : (
-            <p className="text-[12px] text-mute">No policy decision recorded for this proposal.</p>
-          )}
-          {proposal.leaderPlanReasons.length ? (
-            <div className="mt-4 border-t border-line-2 pt-3">
-              <div className="label">Plan quality notes</div>
-              <div className="mt-2 flex flex-wrap gap-1.5">
-                {proposal.leaderPlanReasons.map((reason) => (
-                  <StatusBadge key={reason} tone="warn" icon="!">
-                    {reasonLabel(reason)}
-                  </StatusBadge>
-                ))}
+            <div className="p-5">
+              <div className="flex items-center gap-2">
+                <span className="panel-title">Market context unavailable</span>
+                <LayerTag layer="market" />
               </div>
+              <p className="mt-2 text-[12.5px] leading-relaxed text-mute">
+                PACT renders a real DEX chart only for Base WETH/USDC. This proposal can still be policy-reviewed, but it does not get a substituted chart.
+              </p>
             </div>
-          ) : null}
+          )}
+        </Panel>
+
+        <Panel title="Leader's Trade Plan" subtitle="A plan claim, not execution truth" bodyClassName="px-5 py-3">
+          <dl>
+            <KV k="Strategy" v={<Link href={`/plans/${proposal.strategyId}`} className="hover:text-accent">{proposal.title}</Link>} />
+            <KV k="Direction" v={<StatusBadge tone={proposal.side === "buy" ? "good" : "bad"}>{proposal.side === "buy" ? "Long" : "Sell"}</StatusBadge>} />
+            <KV k="Order Type" v={proposal.orderType === "twap" ? "TWAP" : proposal.orderType} />
+            <KV k="Entry (Ref.)" v={price(proposal.entryReferencePrice)} />
+            <KV
+              k="Target"
+              v={
+                <span className="text-good">
+                  {price(proposal.takeProfitPrice)}
+                  {pct(proposal.entryReferencePrice, proposal.takeProfitPrice) !== undefined ? ` (+${pct(proposal.entryReferencePrice, proposal.takeProfitPrice)!.toFixed(2)}%)` : ""}
+                </span>
+              }
+            />
+            <KV
+              k="Stop"
+              v={
+                <span className="text-bad">
+                  {price(proposal.stopLossPrice)}
+                  {pct(proposal.entryReferencePrice, proposal.stopLossPrice) !== undefined ? ` (${pct(proposal.entryReferencePrice, proposal.stopLossPrice)!.toFixed(2)}%)` : ""}
+                </span>
+              }
+            />
+            <KV k="Reward : Risk" v={rr === undefined ? "—" : rr.toFixed(2)} />
+            <KV k="Plan grade" v={proposal.leaderPlanGrade.toLowerCase()} />
+            <KV k="Execution evidence" v={<EvidenceBadge status={proposal.leaderEvidenceStatus} />} />
+            <KV k="Thesis" v={proposal.thesis || "No thesis declared."} wrap />
+            <KV k="Invalidation" v={proposal.invalidation?.trim() || "not declared"} wrap />
+          </dl>
         </Panel>
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(340px,1fr)]">
-        <div className="min-w-0 space-y-4">
-          <Panel className="overflow-hidden">
-            {supportsLiveMarket ? (
-              <>
-                <TradingChart
-                  entry={proposal.entryReferencePrice}
-                  stop={proposal.stopLossPrice}
-                  target={proposal.takeProfitPrice}
-                  bound={boundsEntry ? bound : undefined}
-                />
-                <div className="border-t border-line">
-                  <ExecutionLevels
-                    side={proposal.side}
-                    entry={proposal.entryReferencePrice}
-                    stop={proposal.stopLossPrice}
-                    target={proposal.takeProfitPrice}
-                  />
-                </div>
-              </>
-            ) : (
-              <div className="p-5">
-                <div className="flex items-center gap-2">
-                  <span className="panel-title">Market context unavailable</span>
-                  <LayerTag layer="market" />
-                </div>
-                <p className="mt-2 text-[12.5px] leading-relaxed text-mute">
-                  PACT currently renders a real DEX chart only for Base WETH/USDC. This proposal
-                  can still be policy-reviewed, but it does not get a substituted or generated chart.
-                </p>
-              </div>
-            )}
-          </Panel>
-
-          <Panel title="Leader declaration" subtitle="A plan claim, not execution truth" bodyClassName="px-4 py-3">
-            <p className="text-[13px] leading-relaxed text-ink/90">{proposal.thesis || "No thesis declared."}</p>
-            <dl className="mt-3">
-              <KV k="Leader" v={<Addr value={proposal.leader} />} />
-              <KV k="Entry window" v={Number.isFinite(expiresAt.valueOf()) ? expiresAt.toLocaleString() : "invalid"} />
-              <KV k="Plan grade" v={proposal.leaderPlanGrade.toLowerCase()} />
-              <KV
-                k="Execution evidence"
-                v={<EvidenceBadge status={proposal.leaderEvidenceStatus} />}
-              />
-              <KV k="Invalidation" v={proposal.invalidation?.trim() || "not declared"} wrap />
+      <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,0.8fr)_minmax(0,0.9fr)_minmax(340px,1fr)]">
+        <div className="space-y-5">
+          <Panel title="Your Execution" subtitle="Mandate applied" layer="policy" bodyClassName="px-5 py-3">
+            <dl>
+              <KV k="Sizing Mode" v={proposal.copySizingMode === "PROPORTIONAL" && mandate ? `Proportional (${Math.round(mandate.copyRatio * 100)}%)` : sizing} />
+              <KV k="Leader Size" v={leaderSize} />
+              <KV k="Your Size" v={<span className={blocked ? "text-mute" : decision?.verdict === "MODIFY" ? "text-warn" : "text-good"}>{blocked ? "not approved" : `${usd(proposal.notionalUsd)} · qty ${approvedQty}`}</span>} />
+              {sleeve ? <KV k="Daily Sleeve (Used / Max)" v={`${usd(sleeve.used)} / ${usd(sleeve.max)}`} /> : null}
+              <KV k="Exit Strategy" v={<StatusBadge tone="neutral">{bracket ? "Follower bracket" : "Manual"}</StatusBadge>} />
+              {rows
+                .filter((r) => r.k === "Entry" || r.k === "Window")
+                .map((r) => (
+                  <KV key={r.k} k={r.k === "Entry" ? "Your entry bound" : "Window"} v={<span className={r.changed ? "text-warn" : ""}>{r.yours}</span>} />
+                ))}
             </dl>
-            <div className="mt-3 space-y-3">
-              <SignalList signals={proposal.signals} />
-              <ReferencePrices
-                check={state?.quotes[proposal.id]?.reference}
-                title={state?.quotes[proposal.id]?.reference ? "Prices at your quote" : "Three prices, live"}
-              />
-            </div>
           </Panel>
+          <SignalList signals={proposal.signals} />
+        </div>
+
+        <div className="space-y-5">
+          <Panel
+            title="Policy Check"
+            subtitle="Your mandate's decision"
+            layer="policy"
+            actions={decision ? <StatusBadge tone={decision.verdict === "BLOCK" ? (decision.action === "DECLINE" ? "bad" : "warn") : "good"}>{verdictLine}</StatusBadge> : null}
+            bodyClassName="px-5 py-4"
+          >
+            {decision?.reasons.length ? (
+              <ul className="mb-3 space-y-2">
+                {decision.reasons.map((reason) => (
+                  <li key={reason} className="flex items-start gap-2.5 text-[13px]">
+                    <span aria-hidden className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[10px] ${decision.verdict === "BLOCK" ? "bg-[var(--bad)] text-white" : "bg-[var(--warn)] text-black"}`}>
+                      {decision.verdict === "BLOCK" ? "✕" : "!"}
+                    </span>
+                    <span className="text-ink">{reasonLabel(reason)}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+            <ul className="space-y-2">
+              {checks.map((c) => (
+                <li key={c.label} className="flex items-start gap-2.5 text-[13px]">
+                  <span aria-hidden className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[10px] ${c.ok ? "bg-[var(--good)] text-white" : "bg-panel-3 text-mute"}`}>
+                    {c.ok ? "✓" : "–"}
+                  </span>
+                  <span className={c.ok ? "text-ink/90" : "text-mute"}>{c.label}</span>
+                </li>
+              ))}
+            </ul>
+            {proposal.leaderPlanReasons.length ? (
+              <div className="mt-4 border-t border-line-2 pt-3">
+                <div className="label">Plan quality notes</div>
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {proposal.leaderPlanReasons.map((reason) => (
+                    <StatusBadge key={reason} tone="warn" icon="!">
+                      {reasonLabel(reason)}
+                    </StatusBadge>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+          </Panel>
+          <ReferencePrices check={state?.quotes[proposal.id]?.reference} title={state?.quotes[proposal.id]?.reference ? "Prices at your quote" : "Three prices, live"} />
         </div>
 
         <div className="min-w-0">
-          <ProposalCard
-            proposal={proposal}
-            decision={decision}
-            receipt={receipt}
-            onDone={onDone}
-            reviewMode
-          />
+          <ProposalCard proposal={proposal} decision={decision} receipt={receipt} onDone={onDone} reviewMode />
         </div>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-line px-5 py-3.5 text-[13px] text-ink/75">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden>
+          <circle cx="8" cy="8" r="6" />
+          <path d="M8 7.2v3.6M8 5.2v.1" strokeLinecap="round" />
+        </svg>
+        You are in control. Signing happens in your wallet, for exactly the order shown, after PACT&apos;s guard checks Flash&apos;s payload in your browser. Nothing is executed until you sign.
       </div>
     </div>
   );

@@ -632,3 +632,34 @@ drawer and no horizontal scroll, no console errors.
 
 Open for review: Discover still leads with four featured cards above the table; Watchlist
 is a planned tab; Orders has no per-order route yet (`/orders/:id`) — next milestones.
+
+## UI milestone 2: warm theme from the user's mockups (Nov 6, 2026)
+
+Implements the nine mockups the user supplied (Discover Leaders, Proposal Review,
+Portfolio, Orders). Frontend only: no backend, API, policy, Flash or signing changes.
+
+- **Theme**: warm near-black surfaces, cream primary buttons, Cormorant Garamond serif
+  for page and panel titles (lining figures), pill chips and badges, underline tabs
+  (`.utabs`). Tokens live in `app/globals.css`.
+- **Shell**: header with the serif PACT⁺ wordmark and five workspaces (Trade · Discover ·
+  Proposals · Portfolio · Orders), a network menu (Base/Arc, Flash status, WETH price, live
+  orders) and the wallet/account menu (wallet value, desk, settings, activity log, tools).
+  Without a wallet the account menu is a separate button, so nothing becomes unreachable.
+  A left rail (Leaders, Following, Watchlist·soon, My Plans, Mandate, Settings) on every
+  page except Trade. The old status bar and workspace tabs moved into these menus.
+- **Discover**: table-first leader list (strategy, assets, live plans, quality, evidence,
+  R:R, copyability) with a leader panel on the right; view, search and sort still in the URL.
+- **Proposal Review**: chart and the leader's plan side by side, then Your Execution,
+  Policy Check and the unchanged signing card.
+- **Portfolio**: tiles (wallet value, open PnL from Flash fills, allocated sleeve, active
+  leaders), Positions / Exposure / By Leader tabs with leader and pair filters, an exposure
+  donut, allocation by leader, and a position detail panel (Position / Execution / Plan /
+  Receipt). Open PnL shows "—" until a copy has filled; DEMO desks show no wallet value.
+- **Orders** (`/execution`): tiles by status bucket, status tabs, search, leader, pair and
+  date filters, 10-row pages, and an Order Detail panel with Execution (fill trajectory,
+  fills with transaction links), Policy & Mandate, Trade Plan and On-chain Evidence (the
+  browser-verified evidence trail plus evidence.json). Status view and selected order are
+  in the URL (`?view=&order=`).
+
+`e2e/ui.e2e.mjs` (22 checks) now covers the rail, the five workspaces, the account menu
+without a wallet, the Portfolio tiles and tabs, and the Orders page.

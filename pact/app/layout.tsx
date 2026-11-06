@@ -1,7 +1,7 @@
 import { Providers } from "@/components/Providers";
 import { AppShell } from "@/components/AppShell";
 import type { Metadata } from "next";
-import { IBM_Plex_Mono, Instrument_Serif, Outfit } from "next/font/google";
+import { Cormorant_Garamond, IBM_Plex_Mono, Outfit } from "next/font/google";
 import "./globals.css";
 
 const outfit = Outfit({
@@ -9,9 +9,10 @@ const outfit = Outfit({
   variable: "--font-outfit",
 });
 
-const serif = Instrument_Serif({
+// Display face for titles, navigation and panel headings (warm terminal direction).
+const serif = Cormorant_Garamond({
   subsets: ["latin"],
-  weight: "400",
+  weight: ["500", "600"],
   style: ["normal", "italic"],
   variable: "--font-serif",
 });

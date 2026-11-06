@@ -3,15 +3,16 @@
 @source "./**/*.{ts,tsx}";
 
 :root {
-  --ink: #e6edf3;
-  --mute: #8b98a5;
-  --gold: #60a5fa;
-  --gold-2: #93c5fd;
-  --magenta: #60a5fa;
-  --plum: #0a0e13;
-  --rose: #fb7185;
-  --line: #24303c;
-  --glass: #10161d;
+  /* Warm terminal (Nov 6 direction): near-black with a brown cast, warm ink, cream actions. */
+  --ink: #ece5da;
+  --mute: #958b7f;
+  --gold: #c9a46a;
+  --gold-2: #e3c993;
+  --magenta: #c9a46a;
+  --plum: #0d0b09;
+  --rose: #e27a6c;
+  --line: #2a241e;
+  --glass: #14110e;
 }
 
 @theme inline {
@@ -39,13 +40,19 @@
   }
 
   html {
-    background-color: #0a0e13;
+    background-color: #0d0b09;
+    /* Cormorant defaults to old-style figures; prices and counts need lining ones. */
+    font-variant-numeric: lining-nums;
   }
 
   body {
     margin: 0;
     color: var(--ink);
-    background-color: #0a0e13;
+    background-color: #0d0b09;
+    /* A faint warm glow from the top right, like a terminal under lamplight. */
+    background-image: radial-gradient(1200px 600px at 78% -10%, rgba(176, 141, 91, 0.10), transparent 60%),
+      radial-gradient(900px 500px at -10% 110%, rgba(176, 120, 70, 0.08), transparent 60%);
+    background-attachment: fixed;
     caret-color: transparent;
     font-family: var(--font-outfit), ui-sans-serif, system-ui, sans-serif;
   }
@@ -125,25 +132,28 @@
    palette and always ship with an icon + label. Layer colours keep market data,
    policy decisions and execution evidence visually distinct. */
 :root {
-  --bg: #0a0e13;
-  --panel: #10161d;
-  --panel-2: #141c25;
-  --panel-3: #1a2430;
-  --line-2: #1b242e;
-  --accent: #60a5fa;
-  --accent-strong: #2563eb;
-  --good: #22b14c;
-  --good-ink: #4ade80;
-  --warn: #fab219;
-  --warn-ink: #fcc94d;
-  --bad: #d03b3b;
-  --bad-ink: #fb7185;
-  --layer-market: #9085e9;
-  --layer-policy: #60a5fa;
-  --layer-exec: #22d3ee;
-  --series-1: #3987e5;
-  --series-2: #d95926;
-  --series-3: #199e70;
+  --bg: #0d0b09;
+  --panel: #14110e;
+  --panel-2: #1a1612;
+  --panel-3: #231d17;
+  --line-2: #201b16;
+  /* Links, focus and selection: warm sand. Primary actions: cream. */
+  --accent: #c9a46a;
+  --accent-strong: #efe5d4;
+  --accent-ink: #17120d;
+  --good: #3f9a63;
+  --good-ink: #7fcf95;
+  --warn: #c08a33;
+  --warn-ink: #e8b766;
+  --bad: #b44c3f;
+  --bad-ink: #e8857a;
+  --layer-market: #a99ad9;
+  --layer-policy: #c9a46a;
+  --layer-exec: #7cc7c0;
+  --series-1: #5fae7b;
+  --series-2: #e5d6bb;
+  --series-3: #6f8fd8;
+  --series-4: #d98a3d;
 }
 
 @theme inline {
@@ -165,9 +175,9 @@
    h-7, px-3, bg-*) can still override them. Unlayered CSS would beat every utility. */
 @layer components {
 .panel {
-  background: var(--panel);
+  background: color-mix(in oklab, var(--panel) 92%, transparent);
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: 14px;
 }
 
 .panel-head {
@@ -181,10 +191,11 @@
 }
 
 .panel-title {
-  font-size: 13px;
-  font-weight: 600;
+  font-family: var(--font-serif), ui-serif, Georgia, serif;
+  font-size: 21px;
+  font-weight: 500;
   color: var(--ink);
-  letter-spacing: 0.01em;
+  letter-spacing: 0.005em;
 }
 
 .label {
@@ -194,7 +205,7 @@
 }
 
 .tnum {
-  font-variant-numeric: tabular-nums;
+  font-variant-numeric: lining-nums tabular-nums;
 }
 
 .tbl {
@@ -209,16 +220,16 @@
   z-index: 1;
   background: var(--panel);
   text-align: left;
-  font-size: 11.5px;
-  font-weight: 500;
+  font-size: 12.5px;
+  font-weight: 400;
   color: var(--mute);
-  padding: 9px 12px;
+  padding: 11px 14px;
   border-bottom: 1px solid var(--line);
   white-space: nowrap;
 }
 
 .tbl td {
-  padding: 10px 12px;
+  padding: 13px 14px;
   border-bottom: 1px solid var(--line-2);
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
@@ -234,33 +245,70 @@
 
 .tbl tbody tr[data-selected="true"] {
   background: var(--panel-3);
-  box-shadow: inset 2px 0 0 var(--accent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--accent) 70%, transparent);
 }
 
 .tbl .r {
   text-align: right;
 }
 
+/* Filter chips: separate pills; the active one is cream. */
 .seg {
   display: inline-flex;
-  gap: 2px;
-  padding: 2px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--bg);
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .seg button {
-  border-radius: 6px;
-  padding: 4px 10px;
-  font-size: 12px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  padding: 6px 15px;
+  font-size: 13px;
+  color: var(--ink);
+  background: transparent;
+  white-space: nowrap;
+  transition: border-color 120ms, background 120ms;
+}
+
+.seg button:hover {
+  border-color: color-mix(in oklab, var(--accent) 60%, var(--line));
+}
+
+.seg button[data-on="true"] {
+  background: var(--accent-strong);
+  border-color: var(--accent-strong);
+  color: var(--accent-ink);
+}
+
+/* Underline tabs for views of one object (Overview / Plans / Execution). */
+.utabs {
+  display: flex;
+  gap: 28px;
+  border-bottom: 1px solid var(--line);
+}
+
+.utabs button,
+.utabs a {
+  position: relative;
+  padding: 10px 2px 11px;
+  font-size: 14px;
   color: var(--mute);
   white-space: nowrap;
 }
 
-.seg button[data-on="true"] {
-  background: var(--panel-3);
+.utabs [data-on="true"] {
   color: var(--ink);
+}
+
+.utabs [data-on="true"]::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 2px;
+  background: var(--accent-strong);
+  border-radius: 2px;
 }
 
 .btn {
@@ -268,13 +316,13 @@
   align-items: center;
   justify-content: center;
   gap: 6px;
-  border-radius: 8px;
-  padding: 7px 12px;
-  font-size: 12.5px;
+  border-radius: 999px;
+  padding: 7px 14px;
+  font-size: 13px;
   font-weight: 500;
   border: 1px solid var(--line);
   color: var(--ink);
-  background: var(--panel-2);
+  background: transparent;
   transition: border-color 120ms, background 120ms;
   white-space: nowrap;
 }
@@ -291,11 +339,12 @@
 .btn-primary {
   background: var(--accent-strong);
   border-color: var(--accent-strong);
-  color: #eff6ff;
+  color: var(--accent-ink);
 }
 
 .btn-primary:hover:not(:disabled) {
-  background: #1d4ed8;
+  background: #fff6e8;
+  border-color: #fff6e8;
 }
 
 .btn-ghost {
@@ -315,14 +364,14 @@
 
 /* Buy / sign action: the follower's go-ahead colour, distinct from the brand blue. */
 .btn-buy {
-  background: var(--good);
-  border-color: var(--good);
-  color: #04120a;
+  background: var(--accent-strong);
+  border-color: var(--accent-strong);
+  color: var(--accent-ink);
 }
 
 .btn-buy:hover:not(:disabled) {
-  background: #2cc25a;
-  border-color: #2cc25a;
+  background: #fff6e8;
+  border-color: #fff6e8;
 }
 
 /* Dense blotter rows for the trade terminal. */
@@ -340,9 +389,9 @@
 
 .field {
   width: 100%;
-  border-radius: 8px;
+  border-radius: 10px;
   border: 1px solid var(--line);
-  background: var(--bg);
+  background: var(--panel-2);
   padding: 7px 10px;
   font-size: 12.5px;
   color: var(--ink);
