@@ -39,7 +39,9 @@ export function AutopilotPanel() {
   const { address, canAct, policy, refresh } = useDeskContext();
   const { sendTransactionAsync } = useSendTransaction();
   const [data, setData] = useState<Payload | null>(null);
-  const [hours, setHours] = useState("24");
+  // Longer than a copy's protection window (24 h by default): a stop or target signed by the
+  // session is checked again on chain when it fires, so it must not outlive the session.
+  const [hours, setHours] = useState("72");
   const [perOrder, setPerOrder] = useState("25");
   const [daily, setDaily] = useState("100");
   const [busy, setBusy] = useState<string | null>(null);
@@ -232,6 +234,11 @@ export function AutopilotPanel() {
           </button>
         </div>
       )}
+      {!grant && canAct ? (
+        <p className="mt-2 text-[11px] text-mute">
+          The session must outlast your copies&apos; protection (stop and target, 24 h by default): its signatures are checked again on chain when a stop fires, so Autopilot will not sign a protective order that ends after the session.
+        </p>
+      ) : null}
       {message ? <p className="mt-3 text-[12px] text-ink/80">{message}</p> : null}
     </Panel>
   );

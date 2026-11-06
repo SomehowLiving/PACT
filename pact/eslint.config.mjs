@@ -9,6 +9,11 @@ const eslintConfig = defineConfig([
   globalIgnores([
     // Default ignores of eslint-config-next:
     ".next/**",
+    // Separate build/test dist dirs (NEXT_DIST_DIR) and the Foundry project's vendored code.
+    ".next-*/**",
+    "contracts/lib/**",
+    "contracts/out/**",
+    "contracts/cache/**",
     "out/**",
     "build/**",
     "next-env.d.ts",

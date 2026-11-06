@@ -1,6 +1,6 @@
 import { executionMetrics, postQuote, quoteRequest } from "./flash";
 import { bracketPriceFloor, verifyBracketSigning, verifySigning, type GuardResult } from "./guard";
-import { decideExecution, effectiveLimitNotionalPrice } from "./policy";
+import { decideExecution, DEFAULT_MAX_EXECUTION_COST, effectiveLimitNotionalPrice } from "./policy";
 import { referenceAtQuote } from "./reference";
 import { decisionFor, openSpendUnits, policyFor, saveQuote, updateDecision } from "./store";
 import type { AttachedBracket, Decision, Proposal, StoredQuote } from "./types";
@@ -11,6 +11,9 @@ import type { AttachedBracket, Decision, Proposal, StoredQuote } from "./types";
  * scoped session key signs for the follower's PACT wallet). `funder` is the address that
  * signs and pays: the follower's EOA in review, their PACT wallet under Autopilot.
  */
+
+/** Flash's minimum TWAP slice count. */
+export const MIN_TWAP_BUCKETS = 2;
 
 export function attachedBracketFor(proposal: Proposal): AttachedBracket | undefined {
   if (
@@ -45,7 +48,7 @@ export async function prepareCopyQuote(proposal: Proposal, funder: `0x${string}`
   const effectiveLimit = effectiveLimitNotionalPrice(proposal, policy);
 
   try {
-    const request = quoteRequest({
+    const build = (twapBucketCount = proposal.twapBucketCount) => quoteRequest({
       chain: proposal.chain,
       targetAsset: proposal.targetAsset,
       contraAsset: proposal.contraAsset,
@@ -54,7 +57,7 @@ export async function prepareCopyQuote(proposal: Proposal, funder: `0x${string}`
       orderType: proposal.orderType,
       funderAddress: funder,
       durationSeconds: proposal.durationSeconds,
-      twapBucketCount: proposal.twapBucketCount,
+      twapBucketCount,
       startTime: proposal.startTime,
       limitNotionalPrice: effectiveLimit,
       triggers: proposal.triggers,
@@ -64,8 +67,23 @@ export async function prepareCopyQuote(proposal: Proposal, funder: `0x${string}`
       // A resting copy (and its TWAP) must not outlive the leader's copy window.
       planExpiresAt: proposal.expiresAt,
     });
-    const quote = await postQuote(request);
-    const metrics = executionMetrics(quote, proposal.side);
+    let request = build();
+    let quote = await postQuote(request);
+    let metrics = executionMetrics(quote, proposal.side);
+    // Each TWAP slice pays its own fees, so a small copy over the cost budget is re-quoted once
+    // with the fewest slices (2) instead of being held: bound, don't veto. Only when the leader
+    // left the slice count to Flash; a leader-set count is part of the plan.
+    const budget = Number(policy.maxExecutionCost ?? DEFAULT_MAX_EXECUTION_COST);
+    if (proposal.orderType === "twap" && proposal.twapBucketCount === undefined && Number(metrics.costRatio) > budget) {
+      const fewer = build(MIN_TWAP_BUCKETS);
+      const retry = await postQuote(fewer);
+      const retryMetrics = executionMetrics(retry, proposal.side);
+      if (Number(retryMetrics.costRatio) < Number(metrics.costRatio)) {
+        request = fewer;
+        quote = retry;
+        metrics = retryMetrics;
+      }
+    }
     const reference = await referenceAtQuote(proposal, Number(metrics.executionPrice), policy.maxReferenceDivergence);
     const executionDecision = decideExecution(proposal, policy, metrics, reference);
     if (executionDecision) {
@@ -139,6 +157,7 @@ export async function prepareCopyQuote(proposal: Proposal, funder: `0x${string}`
       limitBasis: request.limitCrossPrice ? "cross" : request.limitNotionalPrice ? "notional" : undefined,
       maxPriceImpact: request.maxPriceImpact,
       maxSlippage: request.maxSlippage,
+      twapBucketCount: request.twapBucketCount,
       attachedBracket:
         attachedBracket && quote.attachedBracket
           ? {

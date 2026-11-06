@@ -436,10 +436,15 @@ try {
     check("a leader with no settled paper copies is on probation", s?.probation === "PROBATION" && s.copies >= 1, s ? `${s.copies} copies, ${s.probationReason}` : "missing");
     const ctx = await browser.newContext({ viewport: { width: 1440, height: 1400 } });
     const page = await ctx.newPage();
-    await page.goto(`${BASE}/leaders/${LEADER}`, { waitUntil: "networkidle" });
+    // Deep link to the profile's Paper copies tab (?tab= is the canonical tab state).
+    await page.goto(`${BASE}/leaders/${LEADER}?tab=paper`, { waitUntil: "networkidle" });
     await page.getByText("on probation").first().waitFor({ timeout: 20000 });
+    await page.getByText("Paper, not receipts").waitFor({ timeout: 10000 });
     const rows = await page.locator("table tbody tr").count();
-    check("the leader page shows probation, paper copies and evidence", rows >= 1 && (await page.getByText("contradicted").count()) > 0, `${rows} paper rows`);
+    await page.goto(`${BASE}/leaders/${LEADER}?tab=execution`, { waitUntil: "networkidle" });
+    await page.getByText("on probation").first().waitFor({ timeout: 20000 });
+    const contradicted = await page.getByText("contradicted").count();
+    check("the leader page shows probation, paper copies and evidence", rows >= 1 && contradicted > 0, `${rows} paper rows · ${contradicted} contradicted`);
     await page.screenshot({ path: join(OUT, "7-leader-page.png"), fullPage: true });
     await ctx.close();
   }
@@ -516,7 +521,8 @@ try {
     const cookie = await signInNode(h);
     const current = (await api(`/api/policy?follower=${h.address}`)).json.policy;
     await api("/api/policy", { ...current, follows: [LEADER], automationMode: "AUTOPILOT" }, cookie);
-    const created = await api("/api/autopilot", { follower: h.address, chain: "base", hours: 24, maxPerOrderUsd: 50, maxDailyUsd: 200 }, cookie);
+    // The session must outlast the protective order it signs (24 h here), or the stop could not fire.
+    const created = await api("/api/autopilot", { follower: h.address, chain: "base", hours: 72, maxPerOrderUsd: 50, maxDailyUsd: 200 }, cookie);
     const grant = created.json?.grant;
     check(
       "a session is created with a fresh key and an onchain scope",

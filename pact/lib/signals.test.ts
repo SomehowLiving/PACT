@@ -97,7 +97,7 @@ describe("style drift in sizing", () => {
         { leader: L, sizingMode: "FIXED", copyRatio: 0.1, fixedNotionalUsd: 20, riskBudgetUsd: 5, maxDailyUsd: 500, allowOrderTypes: ["twap", "market", "limit"], exitMode: "FOLLOWER_BRACKET" },
       ],
     });
-    const publish = (qty: string, hoursAgo: number) =>
+    const publish = (qty: string) =>
       store.addStrategy({
         leader: L,
         title: `plan ${qty}`,
@@ -117,10 +117,10 @@ describe("style drift in sizing", () => {
         durationSeconds: 600,
       });
     for (const [q, h] of [["100", 30], ["100", 20], ["100", 10]] as const) {
-      const s = publish(q, h);
+      const s = publish(q);
       s.createdAt = new Date(Date.now() - h * 3_600_000).toISOString();
     }
-    const big = publish("400", 0);
+    const big = publish("400");
     const a = await store.createProposal(big.id, proportional);
     expect(a.proposal.signals?.find((s) => s.id === "STYLE_DRIFT")).toMatchObject({ level: "alert", value: 4 });
     expect(Number(a.proposal.qty)).toBeCloseTo(10, 6); // 0.1 × the usual $100, not 0.1 × $400

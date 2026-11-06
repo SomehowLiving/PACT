@@ -393,6 +393,8 @@ export type StoredQuote = {
   costRatio?: string;
   /** R11: oracle, chart and Flash prices at quote time. */
   reference?: import("./signals").ReferenceCheck;
+  /** TWAP slices this quote (and the signed order) used; may be fewer than Flash's default. */
+  twapBucketCount?: number;
   /** Who signs and pays: the follower's EOA (review) or their PACT wallet (Autopilot). */
   funder?: `0x${string}`;
   attachedBracket?: {

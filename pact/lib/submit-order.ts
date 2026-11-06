@@ -83,7 +83,11 @@ export async function submitCopy(
     ...(quote.maxPriceImpact ? { maxPriceImpact: quote.maxPriceImpact } : {}),
     ...(quote.maxSlippage ? { maxSlippage: quote.maxSlippage } : {}),
     triggers: proposal.triggers,
-    ...(proposal.orderType === "twap" && proposal.twapBucketCount !== undefined ? { twapBucketCount: proposal.twapBucketCount } : {}),
+    // Submit exactly the slice count that was quoted (and signed), which may be fewer than the
+    // leader's auto default when the cost budget required it (lib/copy-quote).
+    ...(proposal.orderType === "twap" && (quote.twapBucketCount ?? proposal.twapBucketCount) !== undefined
+      ? { twapBucketCount: quote.twapBucketCount ?? proposal.twapBucketCount }
+      : {}),
     ...(proposal.orderType === "twap" && proposal.startTime ? { startTime: proposal.startTime } : {}),
     ...(Number(INTEGRATOR_FEE_BPS) > 0 ? { flashIntegratorFeeBps: INTEGRATOR_FEE_BPS } : {}),
     ...(process.env.FLASH_BUILDER_CODE ? { erc8021AttributionCode: process.env.FLASH_BUILDER_CODE } : {}),
