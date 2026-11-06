@@ -51,10 +51,10 @@ export function WalletSettings() {
         setFlash(
           ok && body.ok
             ? { tone: "good", label: "online", detail: "API key accepted; asset search reachable." }
-            : { tone: "bad", label: "unreachable", detail: body.error ?? `HTTP ${body.status ?? "error"}` },
+            : { tone: "bad", label: body.error === "rate limited" ? "rate limited" : "not answering", detail: body.error ?? `HTTP ${body.status ?? "error"}` },
         );
       })
-      .catch(() => alive && setFlash({ tone: "bad", label: "unreachable", detail: "Request failed." }));
+      .catch(() => alive && setFlash({ tone: "bad", label: "not checked", detail: "PACT's server did not answer the health check; Flash itself may be fine." }));
     void fetch("/api/market/weth", { cache: "no-store" })
       .then(async (r) => ({ ok: r.ok, body: (await r.json()) as { updatedAt?: string; error?: string } }))
       .then(({ ok, body }) => {

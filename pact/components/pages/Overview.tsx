@@ -29,7 +29,7 @@ function useHealth() {
       void fetch("/api/health", { cache: "no-store" })
         .then((r) => r.json())
         .then((j: Health) => setFlash(j))
-        .catch(() => setFlash({ ok: false, error: "unreachable" }));
+        .catch(() => setFlash({ ok: false, error: "PACT server not answering" }));
     }, 0);
     return () => clearTimeout(id);
   }, []);

@@ -18,6 +18,8 @@ type Health = {
 // share one in-flight check and reuse the result briefly instead of reporting a
 // healthy API as unreachable.
 const TTL_MS = 30_000;
+// A failure is cached briefly, so one blip does not show as an outage for half a minute.
+const FAIL_TTL_MS = 5_000;
 let cached: { value: Health; at: number } | undefined;
 let inflight: Promise<Health> | undefined;
 
@@ -49,13 +51,23 @@ async function check(key: string): Promise<Health> {
   }
 }
 
+/** One retry before reporting Flash as down: a single dropped request is not an outage. */
+async function checkWithRetry(key: string): Promise<Health> {
+  const first = await check(key);
+  if (first.ok) return first;
+  await new Promise((r) => setTimeout(r, 400));
+  return check(key);
+}
+
 export async function GET() {
   const key = process.env.FLASH_API_KEY;
   if (!key) {
     return Response.json({ ok: false, error: "FLASH_API_KEY missing" }, { status: 503 });
   }
-  if (cached && Date.now() - cached.at < TTL_MS) return Response.json(cached.value);
-  inflight ??= check(key).finally(() => {
+  if (cached && Date.now() - cached.at < (cached.value.ok ? TTL_MS : FAIL_TTL_MS)) {
+    return Response.json(cached.value, { status: cached.value.ok ? 200 : 502 });
+  }
+  inflight ??= checkWithRetry(key).finally(() => {
     inflight = undefined;
   });
   const value = await inflight;

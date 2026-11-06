@@ -171,21 +171,40 @@ function WalletValue({ wethPrice }: { wethPrice?: number }) {
 
 /* ── Health ───────────────────────────────────────────────────────────── */
 
-type Health = { ok?: boolean; price?: number | string; latencyMs?: number; error?: string };
+/** `appOffline`: PACT's own server did not answer (e.g. restarting); not a Flash outage. */
+type Health = { ok?: boolean; price?: number | string; latencyMs?: number; error?: string; appOffline?: boolean };
 
 /** One health poll for the whole shell (the API caches Flash for 30s). */
 function useHealth() {
   const [health, setHealth] = useState<Health | null>(null);
   useEffect(() => {
+    let live = true;
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    // After a failure, look again in 5 s instead of waiting for the next 30 s poll.
+    const soon = () => {
+      clearTimeout(retry);
+      retry = setTimeout(load, 5_000);
+    };
     const load = () =>
       void fetch("/api/health", { cache: "no-store" })
         .then((r) => r.json())
-        .then((j: Health) => setHealth(j))
-        .catch(() => setHealth({ ok: false, error: "unreachable" }));
+        .then((j: Health) => {
+          if (!live) return;
+          setHealth(j);
+          if (!j.ok) soon();
+        })
+        .catch(() => {
+          if (!live) return;
+          // PACT's server did not answer: keep the last Flash reading, and say which side failed.
+          setHealth((h) => ({ ...(h ?? {}), appOffline: true }));
+          soon();
+        });
     const first = setTimeout(load, 0);
     const id = setInterval(load, 30_000);
     return () => {
+      live = false;
       clearTimeout(first);
+      clearTimeout(retry);
       clearInterval(id);
     };
   }, []);
@@ -283,8 +302,14 @@ function NetworkMenu({ health }: { health: Health | null }) {
           <dl className="mt-1.5 space-y-1.5 border-t border-line px-2.5 pt-2 text-[12px]">
             <div className="flex justify-between">
               <dt className="text-mute">Definitive Flash</dt>
-              <dd className={health === null ? "text-mute" : health.ok ? "text-good" : "text-bad"}>
-                {health === null ? "checking" : health.ok ? `online · ${health.latencyMs ?? "—"} ms` : "unreachable"}
+              <dd className={health === null ? "text-mute" : health.appOffline ? "text-warn" : health.ok ? "text-good" : "text-bad"}>
+                {health === null
+                  ? "checking"
+                  : health.appOffline
+                    ? "PACT server not answering · retrying"
+                    : health.ok
+                      ? `online · ${health.latencyMs ?? "—"} ms`
+                      : `${health.error === "rate limited" ? "rate limited" : "not answering"}${health.error && health.error !== "rate limited" ? ` (${health.error})` : ""} · retrying`}
               </dd>
             </div>
             <div className="flex justify-between">
