@@ -8,6 +8,7 @@ import { usd } from "@/lib/format";
 import { assessLeaderPlan } from "@/lib/policy";
 import type { Chain, EvidenceCheck, LeaderEvidenceStatus, LeaderPlanGrade, OrderType, Side, Strategy } from "@/lib/types";
 import { isExpired, pairLabel, relativeTime } from "@/lib/views";
+import Link from "next/link";
 import { useMemo, useState, type ReactNode } from "react";
 import { apiFetch } from "@/lib/api";
 import { EvidenceBadge } from "@/components/pages/discover-parts";
@@ -340,7 +341,9 @@ export function Publish() {
                     {plans.map((s) => (
                       <tr key={s.id}>
                         <td className="max-w-[240px]">
-                          <div className="truncate text-ink">{s.title}</div>
+                          <Link href={`/plans/${s.id}`} className="block truncate text-ink hover:text-accent hover:underline">
+                            {s.title}
+                          </Link>
                           <div className="text-[11px] text-mute">{pairLabel(s)} · {s.chain}</div>
                         </td>
                         <td>

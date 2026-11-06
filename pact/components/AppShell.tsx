@@ -93,7 +93,7 @@ const MORE: { href: string; label: string }[] = [
 const TOP_TABS: { href: string; label: string; match?: string[] }[] = [
   { href: "/trade", label: "Trade", match: ["/review"] },
   { href: "/discover", label: "Leaders", match: ["/following", "/leaders"] },
-  { href: "/proposals", label: "Plans", match: ["/leader"] },
+  { href: "/proposals", label: "Plans", match: ["/leader", "/plans"] },
   { href: "/portfolio", label: "Portfolio" },
   { href: "/execution", label: "Receipts", match: ["/history"] },
 ];

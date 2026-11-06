@@ -146,7 +146,9 @@ export function LeaderPage({ address }: { address: string }) {
                         return (
                           <tr key={p.id}>
                             <td className="max-w-[200px]">
-                              <div className="truncate text-ink">{p.title}</div>
+                              <Link href={`/plans/${p.id}`} className="block truncate text-ink hover:text-accent hover:underline">
+                                {p.title}
+                              </Link>
                               <div className="text-[11px] text-mute">
                                 {p.orderType} · {relativeTime(p.createdAt)}
                               </div>
@@ -198,7 +200,9 @@ export function LeaderPage({ address }: { address: string }) {
                   <li key={p.id} className="px-4 py-3">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div className="min-w-0">
-                        <span className="text-[13px] text-ink">{p.title}</span>
+                        <Link href={`/plans/${p.id}`} className="text-[13px] text-ink hover:text-accent hover:underline">
+                          {p.title}
+                        </Link>
                         <span className="ml-2 text-[11px] text-mute">
                           {p.side} {p.orderType} · entry {p.entryReferencePrice ?? "—"} · stop {p.stopLossPrice ?? "—"} · target{" "}
                           {p.takeProfitPrice ?? "—"} · {relativeTime(p.createdAt)}

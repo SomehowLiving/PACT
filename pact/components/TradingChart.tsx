@@ -63,6 +63,7 @@ export function TradingChart({
   showHeader = true,
   showLegend = true,
   timeframe = "5m",
+  fitLevels = false,
 }: {
   entry?: string;
   stop?: string;
@@ -73,6 +74,8 @@ export function TradingChart({
   showHeader?: boolean;
   showLegend?: boolean;
   timeframe?: Timeframe;
+  /** Keep the plan's levels in view even when the market has moved away from them. */
+  fitLevels?: boolean;
 }) {
   const { market, error } = useMarket(timeframe);
   const host = useRef<HTMLDivElement>(null);
@@ -112,7 +115,23 @@ export function TradingChart({
     for (const c of market.candles) byTime.set(c.time, c);
     const bars = [...byTime.values()].sort((a, b) => a.time - b.time);
 
+    const levelPrices = [entry, stop, target, bound].map(n).filter((x): x is number => x !== undefined);
     const candles = chart.addSeries(CandlestickSeries, {
+      ...(fitLevels && levelPrices.length
+        ? {
+            autoscaleInfoProvider: (original: () => { priceRange: { minValue: number; maxValue: number } } | null) => {
+              const res = original();
+              if (!res) return res;
+              return {
+                ...res,
+                priceRange: {
+                  minValue: Math.min(res.priceRange.minValue, ...levelPrices),
+                  maxValue: Math.max(res.priceRange.maxValue, ...levelPrices),
+                },
+              };
+            },
+          }
+        : {}),
       upColor: up,
       downColor: down,
       borderUpColor: up,
@@ -163,7 +182,7 @@ export function TradingChart({
       chart.remove();
       chartRef.current = null;
     };
-  }, [market, entry, stop, target, bound]);
+  }, [market, entry, stop, target, bound, fitLevels]);
 
   const last = market?.candles.at(-1);
   const shown = hover ?? (last ? { o: last.open, h: last.high, l: last.low, c: last.close } : null);

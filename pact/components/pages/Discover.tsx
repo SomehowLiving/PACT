@@ -31,6 +31,7 @@ import { isExpired, leaderRows, pairLabel, relativeTime, rewardRisk, tokenSymbol
 import type { Strategy } from "@/lib/types";
 import { TrackRecord } from "@/components/pages/track-record";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
 type Category = "all" | "disciplined" | "evidence" | "twap" | "following" | "demo";
@@ -76,7 +77,7 @@ function bps(v?: number) {
 type LeaderActions = ReturnType<typeof useLeaderActions>;
 
 /** GMGN-style row actions: ✦ copyability check and Copy / Edit, both open the copy drawer. */
-function FollowButton({
+export function FollowButton({
   actions,
   leader,
   compact = false,
@@ -111,6 +112,7 @@ function FollowButton({
 }
 
 export function Discover() {
+  const router = useRouter();
   const { state, policy } = useDeskContext();
   const actions = useLeaderActions();
   const [category, setCategory] = useState<Category>("all");
@@ -211,10 +213,7 @@ export function Discover() {
               key={plan.id}
               plan={plan}
               selected={selected?.leader.toLowerCase() === plan.leader.toLowerCase() && chartPlan?.id === plan.id}
-              onInspect={() => {
-                setPicked(plan.leader.toLowerCase());
-                setPickedPlan(plan.id);
-              }}
+              onInspect={() => router.push(`/plans/${plan.id}`)}
               action={<FollowButton actions={actions} leader={plan.leader} onOpen={openDrawer} />}
             />
           ))}
@@ -468,9 +467,10 @@ export function Discover() {
                     <li key={plan.id}>
                       <button
                         type="button"
-                        onClick={() => setPickedPlan(plan.id)}
-                        disabled={!isChartable(plan)}
-                        className={`block w-full px-4 py-3 text-left transition ${on ? "bg-panel-3" : "hover:bg-panel-2"} disabled:cursor-default`}
+                        onClick={() => router.push(`/plans/${plan.id}`)}
+                        onMouseEnter={() => isChartable(plan) && setPickedPlan(plan.id)}
+                        title="Open the plan"
+                        className={`block w-full px-4 py-3 text-left transition ${on ? "bg-panel-3" : "hover:bg-panel-2"}`}
                       >
                         <div className="flex items-center justify-between gap-2">
                           <span className="truncate text-[12.5px] font-medium text-ink">{plan.title}</span>

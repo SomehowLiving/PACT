@@ -3,6 +3,7 @@
 import { Addr, AddrAvatar, LayerTag, StatusBadge, type Tone } from "@/components/ui";
 import { isDemoAddress, isExpired, pairLabel, relativeTime, rewardRisk } from "@/lib/views";
 import type { LeaderEvidenceStatus, LeaderPlanGrade, Strategy } from "@/lib/types";
+import Link from "next/link";
 import type { ReactNode } from "react";
 
 /* Discovery building blocks. Cards show a leader's declared plan, never a PnL
@@ -125,7 +126,9 @@ export function FeaturedPlanCard({
         </div>
       </div>
       <h3 className="mt-3 truncate text-[13.5px] font-medium text-ink" title={plan.title}>
-        {plan.title}
+        <Link href={`/plans/${plan.id}`} className="hover:text-accent hover:underline">
+          {plan.title}
+        </Link>
       </h3>
       <div className="mt-1 flex items-center justify-between">
         <SideType plan={plan} />
