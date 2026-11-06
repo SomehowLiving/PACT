@@ -1,3 +1,4 @@
+import { appendEvidence, hashSync, threads } from "@/lib/evidence";
 import { postBatchCancel, postCancel, type CancelOutcome } from "@/lib/flash";
 import { refreshReceipt, stillLive } from "@/lib/receipts";
 import { snapshot } from "@/lib/store";
@@ -43,6 +44,13 @@ export async function POST(
       { status: 502 },
     );
   }
+
+  appendEvidence(
+    "order.cancel_requested",
+    threads.proposal(receipt.proposalId),
+    { proposalId: receipt.proposalId, follower: receipt.follower, flashOrderId: receipt.flashOrderId },
+    { orderIds: ids, results, signatureHash: hashSync(body.userSignature) },
+  );
 
   // Read the real state back from Flash rather than assuming "cancelled".
   const refreshed = await refreshReceipt(receipt);

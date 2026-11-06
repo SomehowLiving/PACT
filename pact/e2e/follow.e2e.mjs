@@ -267,7 +267,7 @@ try {
   const policyEditor = await s1.page.getByText(/your limits|save limits/).count();
   check("policy editor is visible once connected", policyEditor > 0);
 
-  await openNewestReview(s1, a.address, "twap");
+  const copy1 = await openNewestReview(s1, a.address, "twap");
   const signBtn = s1.page.getByRole("button", { name: "sign", exact: true }).first();
   await signBtn.waitFor({ timeout: 15000 });
   check("sign is enabled for an ALLOW proposal", await signBtn.isEnabled());
@@ -328,6 +328,16 @@ try {
     const msg = body?.error ?? "";
     check("a rejected order surfaces a readable error in the UI", msg.length > 0 || oRes?.status() >= 400, msg.slice(0, 160));
   }
+
+  // The copy's history is in the append-only log, and the whole log still verifies.
+  const log = await api(`/api/evidence?thread=${encodeURIComponent(`proposal:${copy1.id}`)}`);
+  const kinds = (log.json?.events ?? []).map((e) => e.kind);
+  check("evidence log verifies end to end", log.json?.verification?.ok === true, `${log.json?.length} events`);
+  check(
+    "this copy's trail records decision, quote and the submit outcome",
+    kinds[0] === "decision.made" && kinds.includes("quote.stored") && (kinds.includes("order.submitted") || kinds.includes("order.rejected")),
+    kinds.join(" → "),
+  );
   await s1.ctx.close();
 
   // ---------- Case 2: a lying server must not get a signature ----------

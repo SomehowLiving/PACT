@@ -56,7 +56,7 @@ export function FollowDesk({ reviewProposalId }: { reviewProposalId?: string }) 
 
   useEffect(() => {
     if (!address) return;
-    // GET creates the default policy only if this follower has none. Never overwrite edits.
+    // Reads the saved mandate; a wallet with none gets the defaults. Never overwrites edits.
     void fetch(`/api/policy?follower=${address}`).then(() => refresh());
   }, [address, refresh]);
 

@@ -9,7 +9,7 @@ export async function sha256Json(value: unknown) {
   );
 }
 
-function stable(value: unknown): string {
+export function stable(value: unknown): string {
   if (value === null || typeof value !== "object") return JSON.stringify(value);
   if (Array.isArray(value)) return `[${value.map(stable).join(",")}]`;
   const obj = value as Record<string, unknown>;

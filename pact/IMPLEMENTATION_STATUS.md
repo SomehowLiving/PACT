@@ -355,3 +355,27 @@ site, unknown nonce, owner gate) and a demo-reload test in `lib/store.test.ts` (
 tests pass; the 3 live ones are opt-in). e2e 15/15: Case 0 checks 401 without a session,
 403 for another wallet and 200 for the owner. Case 1 shows exactly one sign-in prompt before
 the Flash signatures. Case 2 (tampered quote) gets the sign-in and nothing else.
+
+## Phase 2 · step 2: hash-chained evidence log (Nov 6, 2026)
+
+The desk store is mutable: a mandate change deleted the proposals and audit rows it
+replaced, and nothing showed that a record had been edited. Now every desk write also
+appends to `<store>.evidence.jsonl`, which only grows.
+
+| Piece | Behaviour |
+| --- | --- |
+| Event | `{v, seq, at, kind, thread, refs, data, prev, threadPrev, hash}`. `hash` = SHA-256 of the canonical JSON without `hash`; `prev` links the whole log, `threadPrev` links one copy (`proposal:<id>`), mandate (`mandate:<follower>`) or plan (`plan:<id>`) |
+| Kinds | `mandate.set` (only when the policy hash changes), `plan.published`, `decision.made` (names the proposal, policy and plan hashes), `decision.updated`, `proposal.withdrawn` (mandate change or demo reload — appended, never erased), `quote.stored` (fees, bounds, hashes of the typed data the wallet is asked to sign), `order.submitted`, `order.rejected` (Flash's error), `order.updated` (only when Flash reports a change), `order.cancel_requested` |
+| Writer | `lib/store.ts` is the only writer, plus the order and cancel routes for outcomes the store never sees. Reads never append: `policyFor` no longer saves a default mandate for an unknown wallet |
+| Verify | `lib/evidence-verify.ts` (browser-safe): `verifyLog` (hashes, sequence, both links), `verifyThread` (one copy). `GET /api/evidence` returns the head hash, length and a server-side check; `?events=1` gives the whole log, `?thread=` one thread |
+| Bundle | evidence.json v3 carries the copy's events, the mandate and plan events its decision names, the thread check and the log head |
+| UI | Execution → receipt shows an "Evidence trail" card: the events, re-verified in the browser (VERIFIED / BROKEN) |
+
+Limit, stated in the bundle: tamper-evident, not tamper-proof. PACT could rewrite the whole
+log; anchoring the head hash on chain is the planned fix.
+
+Tests: `lib/evidence.test.ts` (server hash = browser hash; links; edit, delete and reorder
+detected; reload from file continues the chain; demo decisions name their mandate and plan;
+withdrawals appended; reads do not write; unchanged polls do not log). 100 unit tests pass.
+e2e 17/17: after the real browser flow the log verifies, and the copy's trail reads
+`decision.made → quote.stored → order.rejected` (the throwaway wallet has no USDC).

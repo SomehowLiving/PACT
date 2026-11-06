@@ -1,4 +1,5 @@
 import { CHAINS } from "@/lib/chains";
+import { evidenceHead, threadEvents, threads, verifyThread, type EvidenceEvent } from "@/lib/evidence";
 import { INTEGRATOR_FEE_BPS } from "@/lib/constants";
 import { receiptVerdict, refreshReceipt } from "@/lib/receipts";
 import { policyFor, snapshot } from "@/lib/store";
@@ -38,6 +39,15 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
     integratorFeeBps: INTEGRATOR_FEE_BPS,
   });
 
+  // The proposal's own chain of events, plus the mandate and plan records its decision names.
+  const trail = threadEvents(threads.proposal(receipt.proposalId));
+  const decided = [...trail].reverse().find((e) => e.kind === "decision.made");
+  const findIn = (thread: string, key: string, value: unknown): EvidenceEvent | undefined =>
+    value ? [...threadEvents(thread)].reverse().find((e) => e.data[key] === value) : undefined;
+  const mandateEvent = findIn(threads.mandate(receipt.follower), "policyHash", decided?.data.policyHash);
+  const planEvent = proposal ? findIn(threads.plan(proposal.strategyId), "planHash", decided?.data.planHash) : undefined;
+  const trailCheck = await verifyThread(trail);
+
   const txIds = [
     ...new Set(
       [current.transactionId, ...(current.fills ?? []).map((f) => f.transactionId)].filter(
@@ -47,7 +57,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
   ];
   const bundle = {
     kind: "pact.execution-evidence",
-    version: 2,
+    version: 3,
     exportedAt: new Date().toISOString(),
     flashOrderId: id,
     chain,
@@ -96,10 +106,20 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
       receipt: current,
     },
     flash,
+    evidence: {
+      about:
+        "Append-only, hash-chained PACT records. Each event's hash is SHA-256 over its canonical JSON without `hash`; `threadPrev` links the events of this copy, `prev` links the whole log. Recompute with lib/evidence-verify or /api/evidence.",
+      verification: trailCheck,
+      events: trail,
+      mandate: mandateEvent ?? null,
+      plan: planEvent ?? null,
+      log: evidenceHead(),
+    },
     caveats: [
       "Flash is the source of execution facts; PACT fields are its own policy and quote records.",
       "Entry drift compares the average fill to the leader's declared entry, not to a market benchmark.",
       "This bundle does not claim the leader's own Flash order matches the published plan.",
+      "The evidence log is tamper-evident, not tamper-proof: PACT could rewrite the whole log. Anchoring the head hash on chain is planned.",
       "A Flash signature binds tokens, maximum spend, recipient and deadline; prices and TP/SL triggers are enforced by Flash's engine, so PACT reads them back and reports MATCH or MISMATCH.",
     ],
   };

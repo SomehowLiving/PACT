@@ -6,6 +6,7 @@ import { CHAINS } from "@/lib/chains";
 import { reasonLabel, usd } from "@/lib/format";
 import { executionRows, orderStatusLabel, pairLabel, relativeTime, type ExecutionRow } from "@/lib/views";
 import { receiptVerdict, type VerdictLine } from "@/lib/verdict";
+import { verifyThread, type ChainCheck, type EvidenceEvent } from "@/lib/evidence-verify";
 import type { Receipt } from "@/lib/types";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -217,6 +218,7 @@ function OrderDetail({ row }: { row: ExecutionRow }) {
         </div>
 
         <ReceiptVerdict receipt={receipt} side={proposal?.side ?? "buy"} />
+        <EvidenceTrail receipt={receipt} />
 
         <dl className="mt-4">
           <KV k="Leader declared entry" v={price(receipt.declaredEntryPrice)} />
@@ -346,6 +348,88 @@ function ReceiptVerdict({ receipt, side }: { receipt: Receipt; side: "buy" | "se
       </ul>
       <p className="px-3 py-2 text-[10.5px] leading-relaxed text-mute">
         Recipient and integrator fee are checked in evidence.json against Flash&apos;s live order record.
+      </p>
+    </div>
+  );
+}
+
+const EVENT_LABEL: Record<EvidenceEvent["kind"], string> = {
+  "mandate.set": "Mandate set",
+  "plan.published": "Plan published",
+  "decision.made": "Policy decision",
+  "decision.updated": "Decision updated",
+  "proposal.withdrawn": "Copy withdrawn",
+  "quote.stored": "Flash quote stored",
+  "order.submitted": "Order submitted",
+  "order.rejected": "Order rejected",
+  "order.updated": "Flash status change",
+  "order.cancel_requested": "Cancel requested",
+};
+
+function eventDetail(e: EvidenceEvent) {
+  const d = e.data;
+  if (e.kind === "decision.made" || e.kind === "decision.updated") return [d.verdict, d.action].filter(Boolean).join(" · ");
+  if (e.kind === "quote.stored") return d.feeNotional ? `fees $${Number(d.feeNotional).toFixed(3)}` : String(d.quoteId ?? "");
+  if (e.kind === "order.updated") return orderStatusLabel(String(d.status ?? ""));
+  if (e.kind === "order.rejected") return String(d.error ?? "").slice(0, 60);
+  if (e.kind === "proposal.withdrawn") return reasonLabel(String(d.reason ?? ""));
+  return "";
+}
+
+/**
+ * This copy's append-only record, fetched from PACT and re-verified here in the browser: every
+ * hash is recomputed and each event must link to the one before it.
+ */
+function EvidenceTrail({ receipt }: { receipt: Receipt }) {
+  const [trail, setTrail] = useState<{ events: EvidenceEvent[]; check: ChainCheck } | null>(null);
+  const thread = `proposal:${receipt.proposalId}`;
+  // Re-read when Flash reports something new about the order.
+  const version = `${receipt.status}|${receipt.finalFillCount ?? 0}|${receipt.protection?.status ?? ""}|${receipt.protection?.orderStatus ?? ""}`;
+  useEffect(() => {
+    let live = true;
+    void fetch(`/api/evidence?thread=${encodeURIComponent(thread)}`)
+      .then((r) => r.json())
+      .then(async (body: { events?: EvidenceEvent[] }) => {
+        const events = body.events ?? [];
+        const check = await verifyThread(events);
+        if (live) setTrail({ events, check });
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [thread, version]);
+
+  const check = trail?.check;
+  return (
+    <div className="mt-4 rounded-lg border border-line">
+      <div className="flex items-center justify-between border-b border-line px-3 py-2">
+        <span className="text-[12.5px] font-semibold text-ink">Evidence trail</span>
+        {check ? (
+          <StatusBadge tone={check.ok ? "good" : "bad"}>{check.ok ? "VERIFIED" : "BROKEN"}</StatusBadge>
+        ) : (
+          <StatusBadge tone="neutral">CHECKING</StatusBadge>
+        )}
+      </div>
+      {trail?.events.length ? (
+        <ol className="divide-y divide-line-2">
+          {trail.events.map((e) => (
+            <li key={e.hash} className="flex items-baseline justify-between gap-3 px-3 py-1.5 text-[12px]">
+              <span className="min-w-0 truncate">
+                <span className="text-ink">{EVENT_LABEL[e.kind] ?? e.kind}</span>
+                {eventDetail(e) ? <span className="text-mute"> · {eventDetail(e)}</span> : null}
+              </span>
+              <span className="shrink-0 font-mono text-[10.5px] text-mute" title={e.hash}>
+                #{e.seq} {e.hash.slice(2, 8)}
+              </span>
+            </li>
+          ))}
+        </ol>
+      ) : null}
+      <p className="px-3 py-2 text-[10.5px] leading-relaxed text-mute">
+        {check && !check.ok
+          ? `Check failed: ${check.reason}.`
+          : "Append-only and hash-chained. Your browser recomputed every hash above; editing or deleting any event would show as broken."}
       </p>
     </div>
   );

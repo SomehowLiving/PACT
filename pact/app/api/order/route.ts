@@ -1,3 +1,4 @@
+import { appendEvidence, hashSync, threads } from "@/lib/evidence";
 import { requireOwner } from "@/lib/session";
 import { INTEGRATOR_FEE_BPS } from "@/lib/constants";
 import { listOrders, postOrder, type OrderBody } from "@/lib/flash";
@@ -131,6 +132,12 @@ export async function POST(req: Request) {
       }
     }
     if (!orderId) {
+      appendEvidence(
+        "order.rejected",
+        threads.proposal(proposal.id),
+        { proposalId: proposal.id, follower: proposal.follower },
+        { quoteId: quote.quoteId, error: message, signatureHash: hashSync(body.userSignature) },
+      );
       return Response.json({ error: message }, { status: 502 });
     }
   }

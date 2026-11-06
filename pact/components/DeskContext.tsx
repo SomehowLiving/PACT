@@ -79,7 +79,7 @@ export function DeskProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!address || viewAs !== "wallet") return;
-    // GET creates the default policy only when this follower has none.
+    // Reads the saved mandate; a wallet with none gets the defaults (unsaved until it edits).
     void fetch(`/api/policy?follower=${address}`).then(() => refresh());
   }, [address, viewAs, refresh]);
 

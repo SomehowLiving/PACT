@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import { tokenDecimals } from "./chains";
 import { defaultPolicy, USDC, WETH } from "./constants";
 import { toUnits } from "./guard";
+import { appendEvidence, hashSync, lastInThread, resetEvidence, threads } from "./evidence";
 import { sha256Json } from "./hash";
 import {
   assessLeaderPlan,
@@ -75,9 +76,17 @@ export function snapshot(): DeskState {
   return structuredClone(m);
 }
 
+/** Test helper: an empty store and an empty evidence log. */
 export function resetStore() {
   g.__pact = empty();
   persist(g.__pact);
+  resetEvidence();
+}
+
+function withdraw(proposals: Proposal[], reason: string) {
+  for (const p of proposals) {
+    appendEvidence("proposal.withdrawn", threads.proposal(p.id), { proposalId: p.id, follower: p.follower, leader: p.leader }, { reason });
+  }
 }
 
 const isDemo = (address?: string) => !!address && /^0x([0-9a-f])\1{39}$/i.test(address);
@@ -92,6 +101,7 @@ export function resetDemoData() {
   const kept = new Set(strategies.map((s) => s.id));
   const proposals = m.proposals.filter((p) => !isDemo(p.follower) && kept.has(p.strategyId));
   const ids = new Set(proposals.map((p) => p.id));
+  withdraw(m.proposals.filter((p) => !ids.has(p.id)), "DEMO_RELOADED");
   const pick = <T,>(r: Record<string, T>) => Object.fromEntries(Object.entries(r).filter(([k]) => ids.has(k)));
   g.__pact = {
     strategies,
@@ -315,6 +325,12 @@ export function upsertPolicy(policy: Policy) {
   if (i >= 0) m.policies[i] = normalized;
   else m.policies.push(normalized);
   persist(m);
+  // Record the mandate when it changes, so every decision can name the mandate it applied.
+  const thread = threads.mandate(normalized.follower);
+  const policyHash = hashSync(normalized);
+  if (lastInThread(thread)?.data.policyHash !== policyHash) {
+    appendEvidence("mandate.set", thread, { follower: normalized.follower }, { policyHash, policy: normalized });
+  }
   return normalized;
 }
 
@@ -326,7 +342,8 @@ export function policyFor(follower: `0x${string}`) {
   // Reads must not write: policies are normalized when loaded and when saved, so an
   // existing one is returned as-is. Persisting here rewrote the store on every poll.
   if (found) return found;
-  return upsertPolicy(defaultPolicy(follower));
+  // A wallet with no saved mandate gets the defaults, unsaved: a read must never append evidence.
+  return normalizePolicy(defaultPolicy(follower));
 }
 
 function normalizePolicy(policy: Policy): Policy {
@@ -366,6 +383,12 @@ export function addStrategy(
   const m = mem();
   m.strategies.unshift(strategy);
   persist(m);
+  appendEvidence(
+    "plan.published",
+    threads.plan(strategy.id),
+    { strategyId: strategy.id, leader: strategy.leader },
+    { planHash: hashSync(strategy), plan: strategy },
+  );
   return strategy;
 }
 
@@ -622,6 +645,21 @@ export async function createProposal(strategyId: string, follower: `0x${string}`
   };
   m.logs.unshift(log);
   persist(m);
+  appendEvidence(
+    "decision.made",
+    threads.proposal(proposal.id),
+    { proposalId: proposal.id, strategyId: strategy.id, follower: proposal.follower, leader: proposal.leader },
+    {
+      proposalHash: log.proposalHash,
+      policyHash: log.policyHash,
+      planHash: lastInThread(threads.plan(strategy.id))?.data.planHash,
+      verdict: decision.verdict,
+      action: decision.action,
+      reasons: decision.reasons,
+      qty: proposal.qty,
+      notionalUsd: proposal.notionalUsd,
+    },
+  );
 
   return { proposal, decision, log };
 }
@@ -635,6 +673,7 @@ export async function rebuildFor(follower: `0x${string}`) {
     (p) => p.follower.toLowerCase() === lower && !acted.has(p.id),
   );
   const dropIds = new Set(drop.map((p) => p.id));
+  withdraw(drop, "MANDATE_CHANGED");
   m.proposals = m.proposals.filter((p) => !dropIds.has(p.id));
   m.logs = m.logs.filter((l) => !dropIds.has(l.proposalId));
   for (const id of dropIds) {
@@ -662,6 +701,30 @@ export function saveQuote(quote: StoredQuote) {
   const m = mem();
   m.quotes[quote.proposalId] = quote;
   persist(m);
+  const proposal = m.proposals.find((p) => p.id === quote.proposalId);
+  appendEvidence(
+    "quote.stored",
+    threads.proposal(quote.proposalId),
+    { proposalId: quote.proposalId, follower: proposal?.follower },
+    {
+      quoteId: quote.quoteId,
+      qty: quote.qty,
+      notionalUsd: quote.notionalUsd,
+      executionPrice: quote.executionPrice,
+      allInPrice: quote.allInPrice,
+      feeNotional: quote.feeNotional,
+      costRatio: quote.costRatio,
+      estimatedPriceImpact: quote.estimatedPriceImpact,
+      effectiveLimitNotionalPrice: quote.effectiveLimitNotionalPrice,
+      limitBasis: quote.limitBasis,
+      maxPriceImpact: quote.maxPriceImpact,
+      maxSlippage: quote.maxSlippage,
+      protection: quote.attachedBracket?.bracket,
+      // What the wallet is asked to sign, by hash: the entry and the protection order.
+      orderTypedDataHash: quote.orderTypedData ? hashSync(quote.orderTypedData) : undefined,
+      protectionTypedDataHash: quote.attachedBracket?.orderTypedData ? hashSync(quote.attachedBracket.orderTypedData) : undefined,
+    },
+  );
   return quote;
 }
 
@@ -674,6 +737,7 @@ export function updateDecision(proposalId: string, decision: Decision) {
   if (!m.proposals.some((proposal) => proposal.id === proposalId)) return undefined;
   m.decisions[proposalId] = decision;
   persist(m);
+  appendEvidence("decision.updated", threads.proposal(proposalId), { proposalId }, { ...decision });
   return decision;
 }
 
@@ -686,6 +750,19 @@ export function addReceipt(input: Omit<Receipt, "id" | "createdAt">) {
   const m = mem();
   m.receipts.unshift(receipt);
   persist(m);
+  appendEvidence(
+    "order.submitted",
+    threads.proposal(receipt.proposalId),
+    { proposalId: receipt.proposalId, follower: receipt.follower, flashOrderId: receipt.flashOrderId },
+    {
+      flashOrderId: receipt.flashOrderId,
+      quoteId: receipt.quoteId,
+      status: receipt.status,
+      notionalUsd: receipt.notionalUsd,
+      verdict: receipt.decision.verdict,
+      protection: receipt.protection,
+    },
+  );
   return receipt;
 }
 
@@ -693,9 +770,46 @@ export function patchReceipt(proposalId: string, patch: Partial<Receipt>) {
   const m = mem();
   const i = m.receipts.findIndex((r) => r.proposalId === proposalId);
   if (i < 0) return undefined;
+  const before = orderFacts(m.receipts[i]);
   m.receipts[i] = { ...m.receipts[i], ...patch };
   persist(m);
+  // Polling re-reads the same order many times; log only what changed.
+  const after = orderFacts(m.receipts[i]);
+  if (hashSync(before) !== hashSync(after)) {
+    const r = m.receipts[i];
+    appendEvidence(
+      "order.updated",
+      threads.proposal(proposalId),
+      { proposalId, follower: r.follower, flashOrderId: r.flashOrderId },
+      after,
+    );
+  }
   return m.receipts[i];
+}
+
+/** The execution facts worth recording each time Flash reports a change. */
+function orderFacts(r: Receipt) {
+  return JSON.parse(
+    JSON.stringify({
+      status: r.status,
+      closeReason: r.closeReason,
+      finalFillCount: r.finalFillCount,
+      pendingFillCount: r.pendingFillCount,
+      averageFillPrice: r.averageFillPrice,
+      entryDriftBps: r.entryDriftBps,
+      feesUsd: r.feesUsd,
+      transactions: [...new Set((r.fills ?? []).map((f) => f.transactionId).filter(Boolean))],
+      protection: r.protection
+        ? {
+            status: r.protection.status,
+            bracketOrderId: r.protection.bracketOrderId,
+            orderStatus: r.protection.orderStatus,
+            closeReason: r.protection.closeReason,
+            levelsMatch: r.protection.levelsMatch,
+          }
+        : undefined,
+    }),
+  ) as Record<string, unknown>;
 }
 
 export function attachOrder(proposalId: string, flashOrderId: string) {
