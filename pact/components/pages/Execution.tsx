@@ -378,6 +378,7 @@ const EVENT_LABEL: Record<EvidenceEvent["kind"], string> = {
   "order.rejected": "Order rejected",
   "order.updated": "Flash status change",
   "order.cancel_requested": "Cancel requested",
+  "leader.evidence": "Leader evidence checked",
 };
 
 function eventDetail(e: EvidenceEvent) {

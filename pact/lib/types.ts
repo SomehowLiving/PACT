@@ -14,7 +14,41 @@ export type LeaderPlanGrade = "DISCIPLINED" | "CAUTION" | "INCOMPLETE";
  * ORDER_FOUND proves Flash returned an order when queried with the publishing
  * leader as funder. It does not prove the order parameters match this plan.
  */
-export type LeaderEvidenceStatus = "UNVERIFIED" | "ORDER_FOUND";
+/**
+ * How far a plan's claim is backed by the leader's own execution, weakest first:
+ * UNVERIFIED, ORDER_FOUND (Flash has an order under the leader's wallet), PLAN_MATCHED (that
+ * order matches the plan), ONCHAIN_VERIFIED (finalised Base transactions show the leader's
+ * wallet made the declared trade near the declared price, inside the plan window).
+ * MISMATCH: the leader's own execution contradicts the plan.
+ */
+export type LeaderEvidenceStatus = "UNVERIFIED" | "ORDER_FOUND" | "PLAN_MATCHED" | "ONCHAIN_VERIFIED" | "MISMATCH";
+
+export type EvidenceCheck = {
+  id: string;
+  label: string;
+  result: "MATCH" | "MISMATCH" | "PENDING" | "NOTE";
+  detail: string;
+};
+
+/** What PACT checked about a leader's execution for one plan, and when. */
+export type LeaderEvidence = {
+  status: LeaderEvidenceStatus;
+  checkedAt: string;
+  flashOrderId?: string;
+  txHashes: string[];
+  checks: EvidenceCheck[];
+  /** Leader's own fills from chain: units, USD, volume-weighted price, drift vs declared entry. */
+  onchain?: {
+    targetUnits: number;
+    contraUsd: number;
+    averagePrice?: number;
+    entryDriftBps?: number;
+    firstTradeAt?: string;
+    finalized: boolean;
+  };
+  /** True while more can change (an open Flash order, or transactions not yet final). */
+  open: boolean;
+};
 export type CopySizingMode = "PROPORTIONAL" | "FIXED" | "STOP_RISK";
 /** Review requires one signature per order; Assist may prepare recommendations but never signs. */
 export type AutomationMode = "REVIEW" | "ASSIST";
@@ -80,6 +114,9 @@ export type Strategy = {
   leaderFlashOrderId?: string;
   /** Verified only when Flash accepts the order lookup for the leader address. */
   leaderEvidenceStatus: LeaderEvidenceStatus;
+  /** Transactions the leader offered as evidence (any venue). */
+  leaderTxHashes?: string[];
+  leaderEvidence?: LeaderEvidence;
   chain: Chain;
   targetAsset: `0x${string}`;
   contraAsset: `0x${string}`;
@@ -140,6 +177,8 @@ export type Policy = {
   requireLeaderPlanQuality?: boolean;
   /** Only copy leaders that supplied a Flash order owned by their publishing wallet. */
   requireLeaderExecutionEvidence?: boolean;
+  /** With evidence required: a matching Flash order (default) or finalised onchain trades. */
+  minLeaderEvidence?: "PLAN_MATCHED" | "ONCHAIN_VERIFIED";
   minRewardRisk: number;
   askHumanUsd?: number;
   /** Assist may prepare policy-compliant review items; it never receives signing authority. */

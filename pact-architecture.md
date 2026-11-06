@@ -125,10 +125,10 @@ One module per external system, each with a typed, validated contract. No busine
 | Adapter | Responsibilities | Must handle | Today |
 | --- | --- | --- | --- |
 | **Flash REST** | quote, order, get/list orders, cancel, batch cancel, update, search, balances | schema validation of every response; `chainId` string → number; 201 on submit; 404 for about 2 s after submit; `error.details`; 429 with `RateLimit-Reset` backoff; a per-key request budget | Partial (no validation, no backoff, no list/batch/update) |
-| **Flash WebSocket** | one upstream connection; subscribe per active funder; heartbeats | reconnect with backoff, resync from `GET /orders` after a gap, fan-out to browsers | Not built |
-| **Base RPC** | transaction receipts, logs, balances, code at address (7702 detection) | reorgs (only use finalised blocks), decoding settlement calls and transfer events | Balances only |
+| **Flash WebSocket** | one upstream connection; subscribe per active funder; heartbeats | reconnect with backoff, resync from `GET /orders` after a gap, fan-out to browsers | Built (Nov 6): `lib/flash-stream.ts` + `lib/tracker.ts`; frames trigger REST refresh, snapshot resync, polling fallback |
+| **Base RPC** | transaction receipts, logs, balances, code at address (7702 detection) | reorgs (only use finalised blocks), decoding settlement calls and transfer events | Receipts, finality and ERC-20 transfer decoding (`lib/base-rpc.ts`) for leader evidence; balances |
 | **Market data** | GeckoTerminal candles; Pyth Hermes reference price (planned) | caching, freshness labels, free-tier limits | Gecko only |
-| **Identity** | wallet connect; signed sessions (SIWE) for every mandate change and publish | message replay protection | Not built (APIs trust the posted address) |
+| **Identity** | wallet connect; signed sessions (SIWE) for every mandate change and publish | message replay protection | Built (Nov 6): SIWE sessions gate every desk write (`lib/session.ts`) |
 
 ### L1 — Evidence store
 
@@ -260,7 +260,7 @@ its source layer. Mandate changes and publishing are signed (L0 identity).
 | A3 revenge re-entry | Open-plan limits | + revenge signal (needs history) |
 | A4 scalper | Not detected | + un-copyable flag from fidelity |
 | A5 hidden hedge | Concentration cap | Same; disclosed limitation |
-| A6 no matching order | Only works for orders placed through PACT's key | Onchain verification of leader fills |
+| A6 no matching order | Built (Nov 6): tx hashes from any venue are checked on Base (direction, price, window, finality, reuse) | Same, plus plan ↔ fill matching history |
 | B1 thin liquidity | Price-impact limit | Same |
 | B2 news shock / divergence | Not built | Pyth vs chart vs quote panel |
 | B4 crash mid-TWAP | Single cancel (bracket stays live) | Batch cancel of entry and legs |

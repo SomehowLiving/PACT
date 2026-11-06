@@ -1,5 +1,6 @@
 import { requireOwner } from "@/lib/session";
-import { addStrategy, proposeToAll, snapshot } from "@/lib/store";
+import { addStrategy, evidenceTxIndex, proposeToAll, setLeaderEvidence, snapshot } from "@/lib/store";
+import { normalizeTxHashes, verifyLeader } from "@/lib/leader-verify";
 import { CHAINS } from "@/lib/chains";
 import { getOrder } from "@/lib/flash";
 import { assessLeaderPlan } from "@/lib/policy";
@@ -37,6 +38,8 @@ export async function POST(req: Request) {
     takeProfitPrice?: string;
     protectionExpiresAt?: string;
     leaderFlashOrderId?: string;
+    /** Transactions from any venue that show the leader's wallet making this trade. */
+    leaderTxHashes?: string[] | string;
   };
 
   if (!body.leader || !/^0x[a-fA-F0-9]{40}$/.test(body.leader)) {
@@ -132,12 +135,15 @@ export async function POST(req: Request) {
     return Response.json({ error: "protection expiry must be in the future" }, { status: 400 });
   }
 
-  let leaderEvidenceStatus: "UNVERIFIED" | "ORDER_FOUND" = "UNVERIFIED";
   const leaderFlashOrderId = body.leaderFlashOrderId?.trim() || undefined;
+  const leaderTxHashes = normalizeTxHashes(body.leaderTxHashes);
+  if (leaderTxHashes === null) {
+    return Response.json({ error: "transaction hashes must be 0x followed by 64 hex characters" }, { status: 400 });
+  }
   if (leaderFlashOrderId) {
+    // A typo in the order id should fail the publish, not quietly mark the plan as contradicted.
     try {
       await getOrder(leaderFlashOrderId, body.leader);
-      leaderEvidenceStatus = "ORDER_FOUND";
     } catch (e) {
       return Response.json(
         {
@@ -173,8 +179,13 @@ export async function POST(req: Request) {
     startTime: orderType === "twap" ? body.startTime : undefined,
     limitNotionalPrice: body.limitNotionalPrice,
     triggers,
-  }, leaderEvidenceStatus);
+  });
 
+  // Check the leader's own execution before any follower gets a copy: evidence is a policy input.
+  if (leaderFlashOrderId || leaderTxHashes.length) {
+    const evidence = await verifyLeader(strategy, { flashOrderId: leaderFlashOrderId, txHashes: leaderTxHashes }, evidenceTxIndex());
+    await setLeaderEvidence(strategy.id, evidence);
+  }
   const copies = await proposeToAll(strategy.id);
   return Response.json({ strategy, copies });
 }

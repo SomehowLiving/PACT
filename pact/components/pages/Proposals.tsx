@@ -19,6 +19,7 @@ import { actionCounts, actionOf, approvedNotional, isExpired, pairLabel, relativ
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { apiFetch } from "@/lib/api";
+import { EvidenceBadge } from "@/components/pages/discover-parts";
 
 type Filter = "ALL" | CopyAction;
 
@@ -327,7 +328,7 @@ function QueueRow({
         <StatusBadge tone={gradeTone(p.leaderPlanGrade)}>{p.leaderPlanGrade.toLowerCase()}</StatusBadge>
       </td>
       <td className={expired ? "text-mute line-through" : "text-mute"}>{relativeTime(p.expiresAt)}</td>
-      <td className="text-mute">{p.leaderEvidenceStatus === "ORDER_FOUND" ? "order found" : "unverified"}</td>
+      <td><EvidenceBadge status={p.leaderEvidenceStatus} /></td>
       {showAssist ? (
         <td className="text-mute">{assist ? assist.action.replace("_", " ").toLowerCase() : "—"}</td>
       ) : null}

@@ -2,7 +2,7 @@
 
 import { Addr, AddrAvatar, LayerTag, StatusBadge, type Tone } from "@/components/ui";
 import { isDemoAddress, isExpired, pairLabel, relativeTime, rewardRisk } from "@/lib/views";
-import type { LeaderPlanGrade, Strategy } from "@/lib/types";
+import type { LeaderEvidenceStatus, LeaderPlanGrade, Strategy } from "@/lib/types";
 import type { ReactNode } from "react";
 
 /* Discovery building blocks. Cards show a leader's declared plan, never a PnL
@@ -33,13 +33,23 @@ export function GradeBadge({ grade }: { grade: LeaderPlanGrade }) {
   );
 }
 
-export function EvidenceBadge({ found }: { found: boolean }) {
-  return found ? (
-    <StatusBadge tone="good" icon="✓">
-      order found
-    </StatusBadge>
-  ) : (
-    <StatusBadge tone="neutral">unverified</StatusBadge>
+const EVIDENCE_BADGE: Record<LeaderEvidenceStatus, { tone: Tone; icon?: string; label: string; title: string }> = {
+  ONCHAIN_VERIFIED: { tone: "good", icon: "✓", label: "onchain verified", title: "Final Base transactions show the leader's wallet made this trade near the declared entry" },
+  PLAN_MATCHED: { tone: "good", icon: "✓", label: "order matches", title: "The leader's Flash order matches the plan; fills not yet confirmed on chain" },
+  ORDER_FOUND: { tone: "neutral", icon: "✓", label: "order found", title: "Flash has an order under the leader's wallet (checked before plan matching existed)" },
+  MISMATCH: { tone: "bad", icon: "!", label: "contradicted", title: "The leader's own execution contradicts this plan; copies are held for review" },
+  UNVERIFIED: { tone: "neutral", label: "unverified", title: "No evidence of the leader's own execution" },
+};
+
+/** How far the plan is backed by the leader's own execution. */
+export function EvidenceBadge({ status }: { status?: LeaderEvidenceStatus }) {
+  const b = EVIDENCE_BADGE[status ?? "UNVERIFIED"];
+  return (
+    <span title={b.title}>
+      <StatusBadge tone={b.tone} icon={b.icon}>
+        {b.label}
+      </StatusBadge>
+    </span>
   );
 }
 
@@ -135,7 +145,7 @@ export function FeaturedPlanCard({
         </dd>
         <dt className="text-mute">Evidence</dt>
         <dd className="text-right">
-          <EvidenceBadge found={plan.leaderEvidenceStatus === "ORDER_FOUND"} />
+          <EvidenceBadge status={plan.leaderEvidenceStatus} />
         </dd>
       </dl>
       <div className="mt-auto flex gap-2 pt-4">

@@ -428,3 +428,34 @@ live order opened the stream and reported `live` within 1.5 s. 113 unit tests, e
 
 Limit: on serverless hosting the socket only lives while an instance does; polling remains
 the fallback, so nothing depends on the stream being up.
+
+## Phase 3 · step 1: leader credibility from the leader's own execution (Nov 6, 2026)
+
+Before: a leader could attach a Flash order id, and `ORDER_FOUND` only proved Flash had *an*
+order under that wallet, not that it matched the plan. Orders placed outside PACT's API org
+could not be checked at all.
+
+| Layer | Piece | Behaviour |
+| --- | --- | --- |
+| L0 | `lib/base-rpc.ts` | receipt, block time, finality (block ≤ Base `finalized`), ERC-20 `Transfer` decoding (3 topics; NFTs ignored). One shared Base client (sessions use it too) |
+| L3 | `lib/leader-evidence.ts` (pure) | **Onchain**: the leader wallet's net token flows per tx must be the declared trade (buy: contra out, target in), average price ≤ declared entry + 100 bps, first trade no more than 6 h before publish and none after expiry, all final, and no tx already backing another plan. **Flash order**: pair, side, type, limit, the leader's own TP/SL, size, and "leader is in the trade" (cancelled with nothing filled = contradiction); its fill transactions are then checked on chain. Status: `ONCHAIN_VERIFIED` > `PLAN_MATCHED` > `ORDER_FOUND` > `UNVERIFIED`; any contradiction → `MISMATCH` |
+| L3 | `lib/leader-record.ts` | counts per leader: plans by evidence status, verified own volume and drift, copies submitted/filled, copiers' drift, realized P&L, wins/losses. No score |
+| L4 | `decide` | `MISMATCH` → REVIEW `LEADER_EXECUTION_MISMATCH` for every follower; "require evidence" now means at least a matching order, or `minLeaderEvidence: ONCHAIN_VERIFIED` |
+| L5 | `lib/leader-verify.ts`, `setLeaderEvidence` | verification runs at publish *before* copies are proposed; a status change re-decides waiting copies; a `leader.evidence` event is chained only when the facts change |
+| API | `POST /api/strategies` `leaderTxHashes`; `GET/POST /api/strategies/[id]/evidence`; `GET /api/leaders/[address]` | attach later (leader session required); open evidence re-checked at most every 30–60 s |
+| L7 | badge everywhere (onchain verified / order matches / contradicted / unverified); Publish: tx field + "Back a plan with your execution" panel with each check; Discover: "Backed by own execution" and a Track record panel (replaces the "Verified PnL, win rate" placeholder); Mandate: minimum evidence select | |
+
+The publisher is the signed-in leader wallet (step 1 sessions), so "the leader's wallet" is
+proven, and the trades are proven on chain: together they close A6 (no matching order).
+
+Tests: `lib/leader-evidence.test.ts` (verified buy; sell offered for a buy; +300 bps; trade
+8 h before publish; tx reused across plans; missing / not-final / reverted; ERC-20 vs NFT
+decoding; order field matching; cancelled-unfilled; combine order; the order's own fills
+read from chain, reorged fill skipped; policy holds MISMATCH and honours the minimum; store
+re-decides the evidence-required demo desk and records once). Live: a real Base tx decoded
+with its USDC transfers, not yet final. 125 unit tests; e2e 22/22. Case 4 publishes with a
+real Base tx the leader wallet had nothing to do with: `MISMATCH (tx.direction)`, the
+follower's copy is held, attaching without a session is 401, and the record counts it.
+
+Not covered: native-ETH legs (WETH/USDC only); leaders whose trades settle to another
+recipient wallet; drawdown (needs longer history).

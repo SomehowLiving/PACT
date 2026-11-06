@@ -55,6 +55,7 @@ export async function POST(req: Request) {
     !(body.maxOpenPlansPerLeader >= 1) ||
     !(Number(body.maxEntryDrift) >= 0) ||
     !(body.maxExecutionCost === undefined || (Number(body.maxExecutionCost) > 0 && Number(body.maxExecutionCost) <= 0.3)) ||
+    !(body.minLeaderEvidence === undefined || body.minLeaderEvidence === "PLAN_MATCHED" || body.minLeaderEvidence === "ONCHAIN_VERIFIED") ||
     !(Number(body.maxPriceImpact) >= 0) ||
     !(Number(body.maxSlippage) >= 0) ||
     !(body.minRewardRisk >= 1) ||

@@ -1,7 +1,8 @@
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { createPublicClient, http, recoverMessageAddress, type Hex } from "viem";
+import { recoverMessageAddress, type Hex } from "viem";
+import { baseClient } from "./base-rpc";
 import { base } from "viem/chains";
 import { createSiweMessage, generateSiweNonce, parseSiweMessage, validateSiweMessage } from "viem/siwe";
 
@@ -123,10 +124,7 @@ export function signInMessage(req: Request, address: Address, nowMs = Date.now()
   });
 }
 
-const rpc = createPublicClient({
-  chain: base,
-  transport: http(process.env.EVM_RPC_URL || process.env.NEXT_PUBLIC_EVM_RPC_URL || "https://mainnet.base.org"),
-});
+const rpc = baseClient;
 
 /** EOA signatures are checked locally; anything else is asked of the chain (ERC-1271 / 6492). */
 async function signatureValid(address: Address, message: string, signature: Hex) {

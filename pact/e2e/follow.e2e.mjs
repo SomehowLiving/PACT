@@ -391,6 +391,35 @@ try {
   check("sign is disabled on BLOCK", await lockedBtn.isDisabled());
   await s3.page.screenshot({ path: join(OUT, "6-block-locked.png") });
   await s3.ctx.close();
+
+  // ---------- Case 4: leader evidence is checked on Base ----------
+  console.log("\n# Case 4: a leader backs a plan with someone else's transaction");
+  {
+    const d = privateKeyToAccount(generatePrivateKey());
+    await followLeader(d);
+    const bad = await api("/api/strategies", { leader: LEADER, qty: "100", ...(await disciplinedPlan()), leaderTxHashes: "0x1234" }, leaderCookie);
+    check("a malformed transaction hash is refused at publish", bad.status === 400, `status ${bad.status}`);
+
+    // A real, recent Base transaction that the throwaway leader wallet had nothing to do with.
+    const rpc = await fetch("https://mainnet.base.org", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_getBlockByNumber", params: ["latest", false] }),
+    }).then((r) => r.json());
+    const foreignTx = rpc.result.transactions[0];
+    const pub = await publish({ orderType: "twap", qty: "100", durationSeconds: 600, ...(await disciplinedPlan()), leaderTxHashes: [foreignTx] });
+    const strategy = pub.json.strategy;
+    const failed = (strategy.leaderEvidence?.checks ?? []).filter((c) => c.result === "MISMATCH").map((c) => c.id);
+    check("someone else's transaction is called out as contradicting the plan", strategy.leaderEvidenceStatus === "MISMATCH", failed.join(", "));
+    const st = await api(`/api/state?follower=${d.address}`);
+    const copy = st.json.proposals.find((p) => p.strategyId === strategy.id && p.follower.toLowerCase() === d.address.toLowerCase());
+    const reasons = st.json.decisions[copy?.id]?.reasons ?? [];
+    check("the follower's copy is held because the leader's execution contradicts it", reasons.includes("LEADER_EXECUTION_MISMATCH"), reasons.join(", "));
+    const anon = await api(`/api/strategies/${strategy.id}/evidence`, { txHashes: [foreignTx] });
+    check("attaching evidence without the leader's session is refused", anon.status === 401, `status ${anon.status}`);
+    const record = await api(`/api/leaders/${LEADER}`);
+    check("the leader's record counts the contradiction", record.json?.record?.evidence?.MISMATCH >= 1, JSON.stringify(record.json?.record?.evidence));
+  }
 } finally {
   await browser.close();
 }

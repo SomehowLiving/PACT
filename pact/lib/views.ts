@@ -1,3 +1,4 @@
+import { evidenceRank } from "./leader-evidence";
 import { CHAINS } from "./chains";
 import { assessLeaderPlan } from "./policy";
 import type {
@@ -67,8 +68,10 @@ export type LeaderRow = {
   grades: Record<LeaderPlanGrade, number>;
   /** Mean declared reward:risk across plans with a valid entry, stop and target. */
   avgRewardRisk?: number;
-  /** Plans whose Flash order lookup found an order under the leader wallet. */
+  /** Plans backed by the leader's own execution (a matching Flash order or onchain trades). */
   evidenceFound: number;
+  /** Plans the leader's own execution contradicts. */
+  evidenceMismatches: number;
   /** Followers in this PACT store that selected the leader. */
   pactFollowers: number;
   pairs: string[];
@@ -108,7 +111,8 @@ export function leaderRows(state: Pick<DeskState, "strategies" | "policies" | "p
       lastPlanAt: plans.map((p) => p.createdAt).sort().at(-1),
       grades,
       avgRewardRisk: ratios.length ? ratios.reduce((a, b) => a + b, 0) / ratios.length : undefined,
-      evidenceFound: plans.filter((p) => p.leaderEvidenceStatus === "ORDER_FOUND").length,
+      evidenceFound: plans.filter((p) => evidenceRank(p.leaderEvidenceStatus) >= evidenceRank("ORDER_FOUND")).length,
+      evidenceMismatches: plans.filter((p) => p.leaderEvidenceStatus === "MISMATCH").length,
       pactFollowers: state.policies.filter((p) => p.follows?.some((l) => l.toLowerCase() === key)).length,
       pairs: [...new Set(plans.map(pairLabel))],
       orderTypes: [...new Set(plans.map((p) => p.orderType))],

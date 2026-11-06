@@ -38,6 +38,7 @@ import {
   useSignTypedData,
 } from "wagmi";
 import { apiFetch } from "@/lib/api";
+import { EvidenceBadge } from "@/components/pages/discover-parts";
 
 const PREVIEW_POLICY = defaultPolicy(
   "0x0000000000000000000000000000000000000000",
@@ -511,11 +512,7 @@ export function ReviewWorkspace({
               <KV k="Plan grade" v={proposal.leaderPlanGrade.toLowerCase()} />
               <KV
                 k="Execution evidence"
-                v={
-                  proposal.leaderEvidenceStatus === "ORDER_FOUND"
-                    ? "order found under leader wallet"
-                    : "unverified"
-                }
+                v={<EvidenceBadge status={proposal.leaderEvidenceStatus} />}
               />
               <KV k="Invalidation" v={proposal.invalidation?.trim() || "not declared"} wrap />
             </dl>

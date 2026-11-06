@@ -439,7 +439,7 @@ function PlanRail({
             {[
               ["Plans live / published", leader ? `${leader.activePlans} / ${leader.plans}` : "—"],
               ["Average declared R:R", leader?.avgRewardRisk !== undefined ? `${leader.avgRewardRisk.toFixed(2)}R` : "—"],
-              ["Flash order evidence", leader ? `${leader.evidenceFound} of ${leader.plans}` : "—"],
+              ["Backed by own execution", leader ? `${leader.evidenceFound} of ${leader.plans}` : "—"],
               ["PACT followers", leader ? String(leader.pactFollowers) : "—"],
               ["Copies filled via PACT", leader ? `${leader.filledOrders} of ${leader.copiedOrders}` : "—"],
               ["Mean entry drift", leader?.meanDriftBps !== undefined ? `${leader.meanDriftBps.toFixed(1)} bps` : "—"],

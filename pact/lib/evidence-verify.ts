@@ -23,7 +23,8 @@ export type EvidenceKind =
   | "order.submitted"
   | "order.rejected"
   | "order.updated"
-  | "order.cancel_requested";
+  | "order.cancel_requested"
+  | "leader.evidence";
 
 export type EvidenceRefs = {
   proposalId?: string;

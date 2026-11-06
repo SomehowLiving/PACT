@@ -1,3 +1,4 @@
+import { evidenceRank } from "./leader-evidence";
 import type { Decision, LeaderPlanGrade, Policy, Proposal, Side } from "./types";
 
 export function pairKey(target: string, contra: string) {
@@ -224,7 +225,14 @@ export function decide(
       return { verdict: "BLOCK", action: "REVIEW", reasons: assessment.reasons };
     }
   }
-  if (policy.requireLeaderExecutionEvidence && proposal.leaderEvidenceStatus !== "ORDER_FOUND") {
+  // The leader's own execution contradicts the plan: hold it for every follower.
+  if (proposal.leaderEvidenceStatus === "MISMATCH") {
+    return { verdict: "BLOCK", action: "REVIEW", reasons: ["LEADER_EXECUTION_MISMATCH"] };
+  }
+  if (
+    policy.requireLeaderExecutionEvidence &&
+    evidenceRank(proposal.leaderEvidenceStatus) < evidenceRank(policy.minLeaderEvidence ?? "PLAN_MATCHED")
+  ) {
     return { verdict: "BLOCK", action: "REVIEW", reasons: ["LEADER_EXECUTION_UNVERIFIED"] };
   }
   if (

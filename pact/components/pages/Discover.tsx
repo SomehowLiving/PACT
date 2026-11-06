@@ -29,6 +29,7 @@ import { MAX_LEADERS, useLeaderActions } from "@/components/pages/following-acti
 import { CopyDrawer, type DrawerTab } from "@/components/pages/copy-drawer";
 import { isExpired, leaderRows, pairLabel, relativeTime, rewardRisk, tokenSymbol, type LeaderRow } from "@/lib/views";
 import type { Strategy } from "@/lib/types";
+import { TrackRecord } from "@/components/pages/track-record";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
@@ -190,7 +191,7 @@ export function Discover() {
       <PageHeader
         eyebrow="02 · Discover"
         title="Discover leaders"
-        description="Leaders ranked by what they have actually published: plan structure, declared reward:risk, Flash order evidence, and how copies executed. PACT does not rank by unverified PnL."
+        description="Leaders ranked by what they have actually published: plan structure, declared reward:risk, whether their own trades back each plan (Flash order or onchain), and how copies executed. PACT does not rank by unverified PnL."
         actions={
           <span className="text-[12px] text-mute">
             Following <span className="tnum text-ink">{policy.follows?.length ?? 0}</span> / {MAX_LEADERS}
@@ -402,7 +403,15 @@ export function Discover() {
               <dl className="px-4 py-2">
                 <KV k="Plans live / published" v={`${selected.activePlans} / ${selected.plans}`} />
                 <KV k="Average declared R:R" v={formatRR(selected.avgRewardRisk)} />
-                <KV k="Flash order evidence" v={`${selected.evidenceFound} of ${selected.plans} plans`} />
+                <KV
+                  k="Backed by own execution"
+                  v={
+                    <span>
+                      {selected.evidenceFound} of {selected.plans} plans
+                      {selected.evidenceMismatches ? <span className="text-bad"> · {selected.evidenceMismatches} contradicted</span> : null}
+                    </span>
+                  }
+                />
                 <KV k="PACT followers" v={selected.pactFollowers} />
                 <KV k="Copies submitted / filled" v={`${selected.copiedOrders} / ${selected.filledOrders}`} />
                 <KV k="Mean entry drift" v={bps(selected.meanDriftBps)} />
@@ -473,7 +482,7 @@ export function Discover() {
                           <span className="text-mute">{pairLabel(plan)}</span>
                           <span className="tnum text-ink">{formatRR(rewardRisk(plan))}</span>
                           <GradeBadge grade={plan.leaderPlanGrade} />
-                          <EvidenceBadge found={plan.leaderEvidenceStatus === "ORDER_FOUND"} />
+                          <EvidenceBadge status={plan.leaderEvidenceStatus} />
                         </div>
                         <div className="mt-2.5">
                           <PlanRange plan={plan} />
@@ -486,10 +495,9 @@ export function Discover() {
             </Panel>
           ) : null}
 
-          <Planned title="Verified PnL, win rate and drawdown">
-            Requires a history of follower-signed Flash fills. PACT will show realized outcomes per leader only from
-            those receipts, with each number linked to its orders. Until then these columns stay empty instead of
-            showing invented figures.
+          {selected ? <TrackRecord leader={selected.leader} /> : null}
+          <Planned title="Drawdown">
+            Needs a longer history of closed copies per leader. Shown only once enough receipts exist, never estimated.
           </Planned>
           <Planned title="Leader watch alerts">
             Notify when a followed or watched leader publishes a new plan.

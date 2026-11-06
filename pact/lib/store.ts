@@ -17,6 +17,7 @@ import type {
   AuditLog,
   Decision,
   DeskState,
+  LeaderEvidence,
   LeaderMandate,
   Policy,
   Proposal,
@@ -787,6 +788,61 @@ export function patchReceipt(proposalId: string, patch: Partial<Receipt>) {
     );
   }
   return m.receipts[i];
+}
+
+/** Transaction hash → the plan it already backs, so one trade cannot back two plans. */
+export function evidenceTxIndex(): Map<string, string> {
+  const index = new Map<string, string>();
+  for (const st of mem().strategies) {
+    for (const h of st.leaderEvidence?.txHashes ?? st.leaderTxHashes ?? []) {
+      if (!index.has(h.toLowerCase())) index.set(h.toLowerCase(), st.id);
+    }
+  }
+  return index;
+}
+
+/**
+ * Record what PACT verified about a leader's execution for one plan. When the status changes,
+ * followers' waiting copies of that plan are re-decided, since evidence is a policy input.
+ */
+export async function setLeaderEvidence(strategyId: string, evidence: LeaderEvidence) {
+  const m = mem();
+  const strategy = m.strategies.find((s) => s.id === strategyId);
+  if (!strategy) return undefined;
+  const changed = strategy.leaderEvidenceStatus !== evidence.status;
+  const facts = (e?: LeaderEvidence) =>
+    e ? hashSync({ status: e.status, checks: e.checks, onchain: e.onchain, txHashes: e.txHashes, flashOrderId: e.flashOrderId, open: e.open }) : undefined;
+  if (facts(strategy.leaderEvidence) === facts(evidence)) {
+    // Same facts, re-checked later: note when, but there is nothing new to record.
+    strategy.leaderEvidence = { ...strategy.leaderEvidence!, checkedAt: evidence.checkedAt };
+    persist(m);
+    return strategy;
+  }
+  strategy.leaderEvidence = evidence;
+  strategy.leaderEvidenceStatus = evidence.status;
+  strategy.leaderTxHashes = evidence.txHashes;
+  if (evidence.flashOrderId) strategy.leaderFlashOrderId = evidence.flashOrderId;
+  persist(m);
+  appendEvidence(
+    "leader.evidence",
+    threads.plan(strategy.id),
+    { strategyId: strategy.id, leader: strategy.leader },
+    {
+      status: evidence.status,
+      flashOrderId: evidence.flashOrderId,
+      txHashes: evidence.txHashes,
+      onchain: evidence.onchain,
+      checks: evidence.checks.map((c) => ({ id: c.id, result: c.result })),
+    },
+  );
+  if (changed) {
+    const acted = new Set(m.receipts.map((r) => r.proposalId));
+    const followers = new Set(
+      m.proposals.filter((p) => p.strategyId === strategyId && !acted.has(p.id)).map((p) => p.follower),
+    );
+    for (const follower of followers) await rebuildFor(follower);
+  }
+  return strategy;
 }
 
 /** The execution facts worth recording each time Flash reports a change. */

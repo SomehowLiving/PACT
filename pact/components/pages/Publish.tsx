@@ -2,14 +2,15 @@
 
 import { useDeskContext } from "@/components/DeskContext";
 import { TradingChart } from "@/components/TradingChart";
-import { Addr, Empty, KV, LayerTag, PageHeader, Panel, Segmented, StatusBadge, type Tone } from "@/components/ui";
+import { Addr, Empty, KV, PageHeader, Panel, Segmented, StatusBadge, type Tone } from "@/components/ui";
 import { CHAIN_IDS } from "@/lib/chains";
 import { usd } from "@/lib/format";
 import { assessLeaderPlan } from "@/lib/policy";
-import type { Chain, LeaderPlanGrade, OrderType, Side } from "@/lib/types";
+import type { Chain, EvidenceCheck, LeaderEvidenceStatus, LeaderPlanGrade, OrderType, Side, Strategy } from "@/lib/types";
 import { isExpired, pairLabel, relativeTime } from "@/lib/views";
 import { useMemo, useState, type ReactNode } from "react";
 import { apiFetch } from "@/lib/api";
+import { EvidenceBadge } from "@/components/pages/discover-parts";
 
 const GRADE_TONE: Record<LeaderPlanGrade, Tone> = { DISCIPLINED: "good", CAUTION: "warn", INCOMPLETE: "bad" };
 const GRADE_ICON: Record<LeaderPlanGrade, string> = { DISCIPLINED: "●", CAUTION: "!", INCOMPLETE: "✕" };
@@ -55,6 +56,7 @@ export function Publish() {
   const [stopLossPrice, setStopLossPrice] = useState("2450");
   const [takeProfitPrice, setTakeProfitPrice] = useState("2600");
   const [leaderFlashOrderId, setLeaderFlashOrderId] = useState("");
+  const [leaderTxHashes, setLeaderTxHashes] = useState("");
   const [protectionHours, setProtectionHours] = useState("24");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -92,6 +94,7 @@ export function Publish() {
         takeProfitPrice: takeProfitPrice || undefined,
         protectionExpiresAt: new Date(Date.now() + Number(protectionHours || 0) * 60 * 60 * 1_000).toISOString(),
         leaderFlashOrderId: leaderFlashOrderId || undefined,
+        leaderTxHashes: leaderTxHashes.trim() || undefined,
         expiresAt: new Date(Date.now() + Number(expiryMinutes || 0) * 60 * 1_000).toISOString(),
         chain,
         side: effectiveSide,
@@ -250,8 +253,11 @@ export function Publish() {
             <Field label="Invalidation">
               <textarea className="field resize-none" rows={2} value={invalidation} onChange={(e) => setInvalidation(e.target.value)} />
             </Field>
-            <Field label="Your Flash order ID" unit="optional" hint="PACT checks Flash finds this order under your wallet (ORDER_FOUND). It does not prove every plan term matches it.">
+            <Field label="Your Flash order ID" unit="optional" hint="PACT compares the order with this plan field by field, then checks its fills on Base.">
               <input className="field" value={leaderFlashOrderId} onChange={(e) => setLeaderFlashOrderId(e.target.value)} placeholder="Paste an existing Flash order ID" />
+            </Field>
+            <Field label="Your trade transactions" unit="optional" hint="Any venue. PACT checks on Base that your wallet made this trade, near your entry, inside the plan window, and that the transactions are not already backing another plan.">
+              <input className="field font-mono" value={leaderTxHashes} onChange={(e) => setLeaderTxHashes(e.target.value)} placeholder="0x… (comma separated)" />
             </Field>
           </Section>
           <div className="border-t border-line p-4">
@@ -294,7 +300,7 @@ export function Publish() {
             <dl>
               <KV k="Structure" v={effectiveSide === "buy" ? "stop < entry < target" : "target < entry < stop"} />
               <KV k="Issues" v={assessment.reasons.length ? assessment.reasons.map((r) => r.toLowerCase().replaceAll("_", " ")).join(", ") : "none"} />
-              <KV k="Evidence" v={leaderFlashOrderId ? "checked with Flash on publish" : "unverified"} />
+              <KV k="Evidence" v={leaderFlashOrderId || leaderTxHashes.trim() ? "checked with Flash and Base on publish" : "unverified"} />
             </dl>
           </Panel>
 
@@ -352,7 +358,7 @@ export function Publish() {
                             {s.leaderPlanGrade}
                           </StatusBadge>
                         </td>
-                        <td>{s.leaderEvidenceStatus === "ORDER_FOUND" ? <LayerTag layer="execution" /> : <span className="text-mute">unverified</span>}</td>
+                        <td><EvidenceBadge status={s.leaderEvidenceStatus} /></td>
                         <td className={isExpired(s) ? "text-mute line-through" : "text-mute"}>{relativeTime(s.expiresAt)}</td>
                       </tr>
                     ))}
@@ -365,8 +371,87 @@ export function Publish() {
               </Empty>
             )}
           </Panel>
+          {address ? <AttachEvidence plans={(state?.strategies ?? []).filter((s) => s.leader.toLowerCase() === address.toLowerCase())} onDone={refresh} /> : null}
         </div>
       </div>
     </div>
+  );
+}
+
+/** Back a published plan with your own execution after publishing: a Flash order or trade transactions. */
+function AttachEvidence({ plans, onDone }: { plans: Strategy[]; onDone: () => Promise<void> }) {
+  const [planId, setPlanId] = useState("");
+  const [orderId, setOrderId] = useState("");
+  const [txs, setTxs] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<{ status?: LeaderEvidenceStatus; checks?: EvidenceCheck[]; error?: string } | null>(null);
+  const selected = plans.find((p) => p.id === planId) ?? plans[0];
+  if (!plans.length) return null;
+
+  async function attach() {
+    if (!selected) return;
+    setBusy(true);
+    setResult(null);
+    try {
+      const res = await apiFetch(`/api/strategies/${selected.id}/evidence`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ flashOrderId: orderId.trim() || undefined, txHashes: txs.trim() || undefined }),
+      });
+      const json = await res.json();
+      setResult(res.ok ? { status: json.status, checks: json.evidence?.checks } : { error: json.error ?? "could not attach evidence" });
+      await onDone();
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const checks = result?.checks ?? selected?.leaderEvidence?.checks ?? [];
+  return (
+    <Panel title="Back a plan with your execution" subtitle="Followers who require evidence copy only backed plans; a contradiction holds every copy" layer="execution" bodyClassName="p-4">
+      <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.4fr)_auto] md:items-end">
+        <label className="block text-[12px]">
+          <span className="label">Plan</span>
+          <select className="field mt-1" value={selected?.id ?? ""} onChange={(e) => setPlanId(e.target.value)}>
+            {plans.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.title} · {relativeTime(p.createdAt)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="block text-[12px]">
+          <span className="label">Flash order ID</span>
+          <input className="field mt-1" value={orderId} onChange={(e) => setOrderId(e.target.value)} placeholder={selected?.leaderFlashOrderId ?? "optional"} />
+        </label>
+        <label className="block text-[12px]">
+          <span className="label">Transactions</span>
+          <input className="field mt-1 font-mono" value={txs} onChange={(e) => setTxs(e.target.value)} placeholder="0x… (comma separated)" />
+        </label>
+        <button type="button" className="btn btn-primary" disabled={busy || (!orderId.trim() && !txs.trim())} onClick={() => void attach()}>
+          {busy ? "Checking…" : "Check and attach"}
+        </button>
+      </div>
+      <div className="mt-3 flex items-center gap-2 text-[12px]">
+        <span className="text-mute">Status</span>
+        <EvidenceBadge status={result?.status ?? selected?.leaderEvidenceStatus} />
+        {result?.error ? <span className="text-bad">{result.error}</span> : null}
+      </div>
+      {checks.length ? (
+        <ul className="mt-3 divide-y divide-line-2 rounded-lg border border-line">
+          {checks.map((c) => (
+            <li key={c.id} className="flex items-start justify-between gap-3 px-3 py-2 text-[12px]">
+              <div className="min-w-0">
+                <div className="text-ink">{c.label}</div>
+                <div className="mt-0.5 truncate text-[11px] text-mute" title={c.detail}>
+                  {c.detail}
+                </div>
+              </div>
+              <StatusBadge tone={c.result === "MATCH" ? "good" : c.result === "MISMATCH" ? "bad" : "neutral"}>{c.result}</StatusBadge>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </Panel>
   );
 }

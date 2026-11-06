@@ -88,6 +88,25 @@ describe.skipIf(!LIVE)("Flash live quotes (no orders)", () => {
     expect(Array.isArray(snapshots[0])).toBe(true);
   }, 30_000);
 
+  it("reads a real Base transaction and decodes its USDC transfers (leader evidence reader)", async () => {
+    const { baseClient, readTx } = await import("./base-rpc");
+    // The public RPC refuses eth_getLogs; walk the latest block's transactions instead.
+    const block = await baseClient.getBlock({ blockTag: "latest" });
+    let tx: Awaited<ReturnType<typeof readTx>> | undefined;
+    for (const hash of block.transactions.slice(0, 40)) {
+      const candidate = await readTx(hash);
+      if (candidate.status === "success" && candidate.transfers.some((t) => t.token === usdc.toLowerCase())) {
+        tx = candidate;
+        break;
+      }
+    }
+    expect(tx, "no USDC transfer in the first 40 transactions of the latest block").toBeDefined();
+    if (!tx) return;
+    expect(tx.timestamp).toBeGreaterThan(Date.now() / 1000 - 600);
+    expect(tx.finalized).toBe(false); // seconds old: not final yet
+    expect(tx.transfers.some((t) => t.token === usdc.toLowerCase() && t.value > BigInt(0))).toBe(true);
+  }, 30_000);
+
   it("marks an open position at Flash's exit quote, net of fees and below the mid", async () => {
     const { exitMark } = await import("./marks");
     const { assetPrice } = await import("./price");

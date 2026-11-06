@@ -443,9 +443,22 @@ function ExitSection({ draft, errors, patch }: SectionProps) {
         <Toggle
           checked={draft.requireLeaderExecutionEvidence ?? false}
           onChange={(v) => patch({ requireLeaderExecutionEvidence: v })}
-          label="Require a Flash order owned by the leader"
-          help="ORDER_FOUND only proves Flash found an order under the leader wallet; it does not prove the order matches the plan."
+          label="Require the leader's own execution behind the plan"
+          help="A contradicted plan (the leader's own order or trades disagree with it) is always held, whatever this is set to."
         />
+        {draft.requireLeaderExecutionEvidence ? (
+          <label className="block max-w-[360px] pl-7 text-[12px]">
+            <span className="label">Minimum evidence</span>
+            <select
+              className="field mt-1"
+              value={draft.minLeaderEvidence ?? "PLAN_MATCHED"}
+              onChange={(e) => patch({ minLeaderEvidence: e.target.value as "PLAN_MATCHED" | "ONCHAIN_VERIFIED" })}
+            >
+              <option value="PLAN_MATCHED">A Flash order that matches the plan</option>
+              <option value="ONCHAIN_VERIFIED">Final Base trades by the leader&apos;s wallet</option>
+            </select>
+          </label>
+        ) : null}
       </div>
       <p className="mt-4 text-[11.5px] text-mute">Exit mode (Flash TP/SL bracket or manual) is set per leader under Leaders & sizing.</p>
     </Section>
