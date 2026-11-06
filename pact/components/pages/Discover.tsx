@@ -1,12 +1,13 @@
 "use client";
 
 import { useDeskContext } from "@/components/DeskContext";
-import { ActionBadge, AddrAvatar, Empty, LayerTag, PageHeader, StatusBadge, type SortDir, type Tone } from "@/components/ui";
+import { ActionBadge, AddrAvatar, Empty, LayerTag, leaderName, PageHeader, StatusBadge, type SortDir, type Tone } from "@/components/ui";
 import { activePlans, formatRR } from "@/components/pages/discover-parts";
 import { MAX_LEADERS, useLeaderActions } from "@/components/pages/following-actions";
 import { CopyDrawer, type DrawerTab } from "@/components/pages/copy-drawer";
 import { COPY_VERDICT, useCopyabilityOf } from "@/components/pages/use-copyability";
 import { TrackRecord } from "@/components/pages/track-record";
+import { useWatchlist, WatchButton } from "@/components/watchlist";
 import type { Copyability, CopyVerdict } from "@/lib/copyability";
 import { reasonLabel, shortAddr } from "@/lib/format";
 import type { Strategy } from "@/lib/types";
@@ -86,9 +87,7 @@ function bps(v?: number) {
 }
 
 /** Wallet-derived display name: PACT has no leader profiles beyond the wallet. */
-export function leaderName(address: string) {
-  return `Leader ${address.slice(2, 6).toUpperCase()}`;
-}
+export { leaderName };
 
 /** The leader's dominant plan quality. */
 function quality(r: Pick<LeaderRow, "grades">): { label: string; tone: Tone } {
@@ -190,6 +189,7 @@ export function FollowButton({
   const following = actions.isFollowing(leader);
   return (
     <span className="inline-flex items-center gap-1.5">
+      <WatchButton leader={leader} compact={compact} />
       <button
         type="button"
         onClick={() => onOpen(leader, "analysis")}
@@ -209,8 +209,10 @@ export function FollowButton({
   );
 }
 
-export function Discover() {
+/** Discover lists every leader; scope "watchlist" is the same table limited to starred leaders. */
+export function Discover({ scope = "all" }: { scope?: "all" | "watchlist" } = {}) {
   const { state, policy, follower } = useDeskContext();
+  const watch = useWatchlist();
   const actions = useLeaderActions();
   const [category, setCategory] = useState<Category>("all");
   const [query, setQuery] = useState("");
@@ -274,7 +276,8 @@ export function Discover() {
     strategies.filter((s) => s.leader.toLowerCase() === leader.toLowerCase()).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 
   const q = query.trim().toLowerCase();
-  const shown = rows
+  const scoped = scope === "watchlist" ? rows.filter((r) => watch.has(r.leader)) : rows;
+  const shown = scoped
     .filter(CATEGORY_TEST[category])
     .filter((r) => {
       if (!q) return true;
@@ -285,7 +288,7 @@ export function Discover() {
       const d = sortValue(a, sort.key, copyRank) - sortValue(b, sort.key, copyRank);
       return sort.dir === "asc" ? d : -d;
     });
-  const selected = rows.find((r) => r.leader.toLowerCase() === picked) ?? shown[0];
+  const selected = scoped.find((r) => r.leader.toLowerCase() === picked) ?? shown[0];
   const drawerRow = drawer ? rows.find((r) => r.leader.toLowerCase() === drawer.leader.toLowerCase()) : undefined;
   const onSort = (key: SortKey) => setSort((s) => (s.key === key ? { key, dir: s.dir === "asc" ? "desc" : "asc" } : { key, dir: key === "drift" ? "asc" : "desc" }));
   const sortMark = (key: SortKey) => (sort.key === key ? (sort.dir === "asc" ? " ↑" : " ↓") : " ⇅");
@@ -298,7 +301,11 @@ export function Discover() {
 
       <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_400px] 2xl:grid-cols-[minmax(0,1fr)_440px]">
         <div className="min-w-0">
-          <PageHeader title="Discover Leaders" description="Explore traders publishing structured, verifiable trade plans on PACT." />
+          {scope === "watchlist" ? (
+            <PageHeader title="Watchlist" description="Leaders you are watching without following. Saved in this browser only; starring never sizes or copies anything." />
+          ) : (
+            <PageHeader title="Discover Leaders" description="Explore traders publishing structured, verifiable trade plans on PACT." />
+          )}
 
           <div className="flex gap-3">
             <label className="flex h-12 min-w-0 flex-1 items-center gap-3 rounded-full border border-line bg-panel-2 px-5 focus-within:border-accent">
@@ -411,8 +418,8 @@ export function Discover() {
                     return (
                       <tr key={r.leader} data-selected={selected?.leader === r.leader} onClick={() => setPicked(r.leader.toLowerCase())} className="cursor-pointer">
                         <td>
-                          <div className="flex items-center gap-3">
-                            <AddrAvatar value={r.leader} size={38} />
+                          <div className="flex items-center gap-2.5">
+                            <AddrAvatar value={r.leader} size={34} />
                             <div className="min-w-0">
                               <Link
                                 href={`/leaders/${r.leader}`}
@@ -424,13 +431,14 @@ export function Discover() {
                               </Link>
                               <span className="flex items-center gap-1.5">
                                 <CopyAddress value={r.leader} />
+                                <WatchButton leader={r.leader} bare />
                                 {r.isDemo ? <LayerTag layer="demo" compact /> : null}
                                 {r.paused ? <StatusBadge tone="warn">paused</StatusBadge> : null}
                               </span>
                             </div>
                           </div>
                         </td>
-                        <td className="max-w-[150px]">
+                        <td className="max-w-[130px]">
                           <span className="block truncate text-[13px] text-ink/85" title={latest?.title}>
                             {latest?.title ?? "—"}
                           </span>
@@ -456,6 +464,18 @@ export function Discover() {
                 </tbody>
               </table>
             ) : (
+              scope === "watchlist" && !scoped.length ? (
+                <Empty
+                  title="Your watchlist is empty"
+                  action={
+                    <Link href="/discover" className="btn btn-primary">
+                      Discover leaders
+                    </Link>
+                  }
+                >
+                  Star a leader in Discover or on their profile to keep an eye on their plans without following them.
+                </Empty>
+              ) : (
               <Empty
                 title={rows.length ? "No leaders match" : "No leaders yet"}
                 action={
@@ -484,6 +504,7 @@ export function Discover() {
               >
                 {rows.length ? "Clear the search or pick another filter." : "Leaders appear here after they publish a plan."}
               </Empty>
+              )
             )}
           </div>
           <p className="mt-3 text-[11.5px] text-mute">
@@ -556,8 +577,8 @@ function LeaderPanel({
           <path d="M150 96 L250 30 L285 46 L330 8 L380 40 L440 22" fill="none" stroke="#e8d6b8" strokeOpacity="0.35" />
         </svg>
       </div>
-      <div className="relative z-10 -mt-9 flex items-end justify-between gap-3 px-5">
-        <div className="flex min-w-0 items-end gap-3">
+      <div className="relative z-10 -mt-9 flex flex-wrap items-end justify-between gap-3 px-5">
+        <div className="flex min-w-[210px] flex-1 items-end gap-3">
           <span className="shrink-0 rounded-full ring-4 ring-[var(--panel)]">
             <AddrAvatar value={row.leader} size={68} />
           </span>
@@ -568,7 +589,7 @@ function LeaderPanel({
             <CopyAddress value={row.leader} />
           </div>
         </div>
-        <div className="shrink-0 pb-1">
+        <div className="ml-auto shrink-0 pb-1">
           <FollowButton actions={actions} leader={row.leader} onOpen={(_l, t) => onFollow(t)} compact />
         </div>
       </div>

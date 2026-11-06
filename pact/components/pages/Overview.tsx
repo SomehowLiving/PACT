@@ -2,20 +2,7 @@
 
 import { useDeskContext, useMine } from "@/components/DeskContext";
 import { TradingChart } from "@/components/TradingChart";
-import {
-  ActionBadge,
-  ConfirmDialog,
-  Addr,
-  Empty,
-  KV,
-  LayerTag,
-  Meter,
-  MetricStrip,
-  PageHeader,
-  Panel,
-  Planned,
-  StatusBadge,
-} from "@/components/ui";
+import { ActionBadge, ConfirmDialog, Empty, KV, LayerTag, Meter, MetricStrip, PageHeader, Panel, Planned, StatusBadge, LeaderTag } from "@/components/ui";
 import { usd } from "@/lib/format";
 import {
   actionCounts,
@@ -191,7 +178,7 @@ export function Overview() {
                           </div>
                         </td>
                         <td>
-                          <Addr value={p.leader} />
+                          <LeaderTag value={p.leader} size={20} />
                         </td>
                         <td className="r">{usd(p.notionalUsd)}</td>
                         <td className="text-mute">{relativeTime(p.expiresAt)}</td>

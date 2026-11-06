@@ -73,8 +73,29 @@ check("Follow opens the copy configuration drawer", (await p.getByText(/Sizing|s
 await p.screenshot({ path: OUT + "5-follow-drawer.png" });
 await p.keyboard.press("Escape");
 
+// watchlist: star a leader in Discover, it shows in /watchlist and survives a reload
+await p.goto(`${BASE}/discover`, { waitUntil: "networkidle" });
+await p.locator("main table").first().waitFor();
+const firstLeader = await p.locator('main table a[href^="/leaders/"]').first().getAttribute("href");
+await p.locator('main table button[aria-label="Add to watchlist"]').first().click();
+await p.locator('nav[aria-label="Workspace"] a', { hasText: "Watchlist" }).click();
+await p.waitForURL(/\/watchlist/);
+await p.locator("main table").first().waitFor();
+check("starred leader appears in the watchlist", (await p.locator(`main table a[href="${firstLeader}"]`).count()) > 0 && (await p.locator("main table tbody tr").count()) === 1);
+await p.reload({ waitUntil: "networkidle" });
+await p.locator("main table").first().waitFor();
+check("watchlist survives a reload", (await p.locator("main table tbody tr").count()) === 1);
+await p.screenshot({ path: OUT + "11-watchlist.png" });
+await p.locator('main table button[aria-label="Remove from watchlist"]').first().click();
+await p.waitForTimeout(300);
+check("unstarring empties the watchlist", (await p.getByText("Your watchlist is empty").count()) === 1);
+
+// canonical order link
+await p.goto(`${BASE}/orders/ord_test_123`, { waitUntil: "networkidle" });
+check("order link opens Orders with that order", p.url().includes("/execution?order=ord_test_123"), p.url());
+
 // every route renders
-const routes = ["/", "/trade", "/discover", "/following", "/proposals", "/assist", "/leader", "/portfolio", "/execution", "/history", "/settings/mandate", "/settings/wallet", "/settings/preferences", "/lab", "/follower", "/leader/classic"];
+const routes = ["/", "/trade", "/discover", "/following", "/watchlist", "/proposals", "/assist", "/leader", "/portfolio", "/execution", "/history", "/settings/mandate", "/settings/wallet", "/settings/preferences", "/lab", "/follower", "/leader/classic"];
 const bad = [];
 for (const r of routes) {
   const res = await p.goto(`${BASE}${r}`, { waitUntil: "domcontentloaded" });

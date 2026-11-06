@@ -1,18 +1,7 @@
 "use client";
 
 import { useDeskContext, useMine } from "@/components/DeskContext";
-import {
-  ActionBadge,
-  Addr,
-  Empty,
-  KV,
-  LayerTag,
-  PageHeader,
-  Panel,
-  Planned,
-  Segmented,
-  StatusBadge,
-} from "@/components/ui";
+import { ActionBadge, Empty, KV, LayerTag, PageHeader, Panel, Planned, Segmented, StatusBadge, LeaderTag } from "@/components/ui";
 import { reasonLabel, usd } from "@/lib/format";
 import type { CopyAction, Decision, Proposal } from "@/lib/types";
 import { actionCounts, actionOf, approvedNotional, isExpired, pairLabel, relativeTime, rewardRisk } from "@/lib/views";
@@ -196,17 +185,14 @@ export function Proposals() {
             </Empty>
           ) : (
             <div className="scroll-thin max-h-[640px] overflow-auto">
-              <table className="tbl">
+              <table className="tbl tbl-tight">
                 <thead>
                   <tr>
                     <th>Decision</th>
                     <th>Plan</th>
                     <th>Leader</th>
-                    <th>Pair</th>
-                    <th>Side · type</th>
                     <th className="r">Requested</th>
                     <th className="r">Approved</th>
-                    <th>Sizing</th>
                     <th>Grade</th>
                     <th>Expiry</th>
                     <th>Evidence</th>
@@ -311,19 +297,22 @@ function QueueRow({
       className="cursor-pointer"
     >
       <td>{decision ? <ActionBadge action={decision.action} verdict={decision.verdict} /> : <span className="text-mute">—</span>}</td>
-      <td className="max-w-[220px] truncate text-ink" title={p.title}>
-        {p.title}
+      <td className="max-w-[240px]">
+        <div className="truncate text-ink" title={p.title}>
+          {p.title}
+        </div>
+        <div className="text-[11.5px] text-mute">
+          {pairLabel(p)} · <span className="capitalize">{p.side}</span> · {p.orderType === "twap" ? "TWAP" : p.orderType}
+        </div>
       </td>
       <td>
-        <Addr value={p.leader} />
-      </td>
-      <td>{pairLabel(p)}</td>
-      <td className="text-mute">
-        <span className="text-ink">{p.side}</span> · {p.orderType}
+        <LeaderTag value={p.leader} size={20} />
       </td>
       <td className="r">{decision?.verdict === "MODIFY" ? <span className="text-mute">—</span> : usd(p.notionalUsd)}</td>
-      <td className="r text-ink">{approved > 0 ? usd(approved) : <span className="text-mute">$0</span>}</td>
-      <td className="text-mute">{SIZING_LABEL[p.copySizingMode]}</td>
+      <td className="r">
+        <div className="text-ink">{approved > 0 ? usd(approved) : <span className="text-mute">$0</span>}</div>
+        <div className="text-[11.5px] text-mute">{SIZING_LABEL[p.copySizingMode]}</div>
+      </td>
       <td>
         <StatusBadge tone={gradeTone(p.leaderPlanGrade)}>{p.leaderPlanGrade.toLowerCase()}</StatusBadge>
       </td>

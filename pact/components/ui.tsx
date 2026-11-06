@@ -1,6 +1,7 @@
 "use client";
 
 import type { CopyAction, Verdict } from "@/lib/types";
+import Link from "next/link";
 import { useEffect, useRef, type ReactNode } from "react";
 
 /* Shared terminal primitives. Pages compose these; they do not restyle them.
@@ -439,6 +440,38 @@ export function Addr({ value, className = "" }: { value?: string; className?: st
   return (
     <span className={`font-mono text-[12px] ${className}`} title={value}>
       {value.slice(0, 6)}…{value.slice(-4)}
+    </span>
+  );
+}
+
+/** PACT names a leader from their address only: no invented names. */
+export function leaderName(address: string) {
+  return `Leader ${address.slice(2, 6).toUpperCase()}`;
+}
+
+/** A leader everywhere in PACT: identicon, name from the address, link to the canonical profile. */
+export function LeaderTag({ value, size = 22, link = true, showAddr = false, className = "" }: { value: string; size?: number; link?: boolean; showAddr?: boolean; className?: string }) {
+  const body = (
+    <>
+      <AddrAvatar value={value} size={size} />
+      <span className="min-w-0">
+        <span className="block truncate text-ink">{leaderName(value)}</span>
+        {showAddr ? (
+          <span className="block font-mono text-[11px] leading-tight text-mute">
+            {value.slice(0, 6)}…{value.slice(-4)}
+          </span>
+        ) : null}
+      </span>
+    </>
+  );
+  const cls = `inline-flex min-w-0 items-center gap-2 ${className}`;
+  return link ? (
+    <Link href={`/leaders/${value}`} onClick={(e) => e.stopPropagation()} title={value} className={`${cls} [&>span>span:first-child]:hover:text-accent`}>
+      {body}
+    </Link>
+  ) : (
+    <span className={cls} title={value}>
+      {body}
     </span>
   );
 }

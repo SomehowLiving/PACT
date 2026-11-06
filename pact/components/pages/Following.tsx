@@ -1,20 +1,7 @@
 "use client";
 
 import { useDeskContext } from "@/components/DeskContext";
-import {
-  ActionBadge,
-  Addr,
-  AddrAvatar,
-  Empty,
-  KV,
-  LayerTag,
-  Meter,
-  MetricStrip,
-  PageHeader,
-  Panel,
-  Planned,
-  StatusBadge,
-} from "@/components/ui";
+import { ActionBadge, Empty, KV, LayerTag, Meter, MetricStrip, PageHeader, Panel, Planned, StatusBadge, LeaderTag } from "@/components/ui";
 import { mandateFor, MAX_LEADERS, useLeaderActions } from "@/components/pages/following-actions";
 import { leaderFidelity } from "@/lib/fidelity";
 import { usd } from "@/lib/format";
@@ -177,8 +164,7 @@ export function Following() {
                   <tr key={leader}>
                     <td>
                       <div className="flex items-center gap-2">
-                        <AddrAvatar value={leader} size={24} />
-                        <Addr value={leader} className="text-ink" />
+                        <LeaderTag value={leader} size={24} showAddr />
                       </div>
                     </td>
                     <td>
@@ -237,8 +223,7 @@ export function Following() {
               <div key={leader} className="space-y-3 bg-panel p-4">
                 <div className="flex items-center justify-between gap-2">
                   <span className="flex items-center gap-2">
-                    <AddrAvatar value={leader} size={20} />
-                    <Addr value={leader} className="text-ink" />
+                    <LeaderTag value={leader} size={20} />
                   </span>
                   {paused ? <span className="text-[11px] text-warn">⏸ paused</span> : null}
                 </div>
@@ -285,8 +270,7 @@ export function Following() {
               key={leader}
               title={
                 <span className="flex items-center gap-2">
-                  <AddrAvatar value={leader} size={18} />
-                  <Addr value={leader} className="text-ink" />
+                  <LeaderTag value={leader} size={18} />
                 </span>
               }
               layer="execution"

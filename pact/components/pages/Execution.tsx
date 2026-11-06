@@ -1,8 +1,7 @@
 "use client";
 
 import { useDeskContext } from "@/components/DeskContext";
-import { ActionBadge, AddrAvatar, Empty, KV, PageHeader, Planned, StatusBadge, type Tone } from "@/components/ui";
-import { leaderName } from "@/components/pages/Discover";
+import { ActionBadge, AddrAvatar, Empty, KV, PageHeader, Planned, StatusBadge, type Tone, leaderName } from "@/components/ui";
 import { mandateFor } from "@/components/pages/following-actions";
 import { CHAINS } from "@/lib/chains";
 import { reasonLabel, usd } from "@/lib/format";

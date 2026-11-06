@@ -4,7 +4,7 @@ import { useDeskContext } from "@/components/DeskContext";
 import { ReferencePrices } from "@/components/ReferencePrices";
 import { SignalList } from "@/components/SignalList";
 import { TradingChart } from "@/components/TradingChart";
-import { ActionBadge, Addr, AddrAvatar, Empty, Panel, Segmented, StatusBadge, type Tone } from "@/components/ui";
+import { ActionBadge, Addr, AddrAvatar, Empty, Panel, Segmented, StatusBadge, type Tone, leaderName } from "@/components/ui";
 import { CopyDrawer, type DrawerTab } from "@/components/pages/copy-drawer";
 import { FollowButton } from "@/components/pages/Discover";
 import { EvidenceBadge, formatRR, GradeBadge, SideType } from "@/components/pages/discover-parts";
@@ -96,8 +96,8 @@ export function PlanPage({ id }: { id: string }) {
             <div className="mt-0.5 flex flex-wrap items-center gap-x-3 text-[12px] text-mute">
               <span>
                 by{" "}
-                <Link href={`/leaders/${plan.leader}`} className="text-accent hover:underline">
-                  <Addr value={plan.leader} />
+                <Link href={`/leaders/${plan.leader}`} className="text-accent hover:underline" title={plan.leader}>
+                  {leaderName(plan.leader)}
                 </Link>
               </span>
               <span>{pairLabel(plan)} · {plan.chain}</span>
@@ -220,7 +220,10 @@ export function PlanPage({ id }: { id: string }) {
             <div className="flex items-center gap-3">
               <AddrAvatar value={plan.leader} size={30} />
               <div className="min-w-0 flex-1">
-                <Addr value={plan.leader} />
+                <Link href={`/leaders/${plan.leader}`} className="block text-[14px] text-ink hover:text-accent">
+                  {leaderName(plan.leader)}
+                </Link>
+                <Addr value={plan.leader} className="text-mute" />
                 <div className="text-[11.5px] text-mute">
                   {leaderRow ? `${leaderRow.plans} plans · ${leaderRow.evidenceFound} backed · ${leaderRow.pactFollowers} followers` : ""}
                 </div>

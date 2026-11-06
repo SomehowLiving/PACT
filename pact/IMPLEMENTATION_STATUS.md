@@ -663,3 +663,21 @@ Portfolio, Orders). Frontend only: no backend, API, policy, Flash or signing cha
 
 `e2e/ui.e2e.mjs` (22 checks) now covers the rail, the five workspaces, the account menu
 without a wallet, the Portfolio tiles and tabs, and the Orders page.
+
+### Milestone 2, follow-up: one leader identity, Watchlist, order links (Nov 6, 2026)
+
+- **One leader identity everywhere**: `LeaderTag` and `leaderName` in `components/ui.tsx`
+  (identicon, "Leader XXXX" from the address, link to the profile). Discover, Following,
+  Proposals, the desk overview, Trade, plan pages, Portfolio and Orders all use it, so no
+  page shows a bare `0x…` where the others show a name.
+- **Watchlist** (`/watchlist`, in the rail): star a leader in the Discover table, the leader
+  panel or the profile. The page is the Discover table limited to starred leaders. Saved in
+  this browser only (`components/watchlist.tsx`, localStorage with an in-memory fallback);
+  starring never follows, sizes or copies anything.
+- **Canonical order link**: `/orders/<flash order id or receipt id>` opens that order in
+  Orders (`/execution?order=`).
+- Proposals queue fits without side-scrolling (pair and side under the plan, sizing under
+  the approved amount); the Trade filters use the same pill chips as everywhere else.
+
+`e2e/ui.e2e.mjs` is now 26 checks (adds star, watchlist, reload, unstar and the order
+link); `components/watchlist.test.ts` covers parsing of stored values.

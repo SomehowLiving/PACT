@@ -53,11 +53,11 @@ const WORKSPACES: Workspace[] = [
   {
     href: "/discover",
     label: "Discover",
-    match: ["/discover", "/following", "/leaders"],
+    match: ["/discover", "/following", "/watchlist", "/leaders"],
     tabs: [
       { href: "/discover", label: "All leaders", match: ["/leaders"] },
       { href: "/following", label: "Following", count: "following" },
-      { label: "Watchlist", planned: "Planned: save a leader to watch without following them" },
+      { href: "/watchlist", label: "Watchlist" },
     ],
   },
   {
@@ -75,7 +75,7 @@ const WORKSPACES: Workspace[] = [
   {
     href: "/execution",
     label: "Orders",
-    match: ["/execution", "/history"],
+    match: ["/execution", "/orders", "/history"],
     count: "live",
     tabs: [
       { href: "/execution", label: "Orders & receipts" },
@@ -488,7 +488,7 @@ function Header({ path, onOpenDrawer, wethPrice, health }: { path: string; onOpe
 
 /* ── Left rail ────────────────────────────────────────────────────────── */
 
-type RailIcon = "leaders" | "star" | "plus" | "shield" | "gear";
+type RailIcon = "leaders" | "star" | "eye" | "plus" | "shield" | "gear";
 
 function RailGlyph({ name }: { name: RailIcon }) {
   const p = { width: 18, height: 18, viewBox: "0 0 18 18", fill: "none", stroke: "currentColor", strokeWidth: 1.35, strokeLinecap: "round" as const, strokeLinejoin: "round" as const, "aria-hidden": true };
@@ -497,6 +497,8 @@ function RailGlyph({ name }: { name: RailIcon }) {
       return <svg {...p}><circle cx="7" cy="6.2" r="2.6" /><path d="M2.5 14.5c.5-2.4 2.3-3.8 4.5-3.8s4 1.4 4.5 3.8" /><path d="M12 4a2.4 2.4 0 0 1 0 4.6M13.6 10.9c1.2.6 1.9 1.8 2.1 3.5" /></svg>;
     case "star":
       return <svg {...p}><path d="m9 2.6 1.9 4 4.3.5-3.2 2.9.9 4.3L9 12.1l-3.9 2.2.9-4.3-3.2-2.9 4.3-.5Z" /></svg>;
+    case "eye":
+      return <svg {...p}><path d="M1.8 9S4.5 4 9 4s7.2 5 7.2 5-2.7 5-7.2 5-7.2-5-7.2-5Z" /><circle cx="9" cy="9" r="2.2" /></svg>;
     case "plus":
       return <svg {...p}><path d="M9 3.5v11M3.5 9h11" /></svg>;
     case "shield":
@@ -509,7 +511,7 @@ function RailGlyph({ name }: { name: RailIcon }) {
 const RAIL: { href?: string; label: string; icon: RailIcon; match?: string[]; count?: Count; planned?: string; divider?: boolean }[] = [
   { href: "/discover", label: "Leaders", icon: "leaders", match: ["/leaders"] },
   { href: "/following", label: "Following", icon: "star", count: "following" },
-  { label: "Watchlist", icon: "star", planned: "Planned: save a leader to watch without following" },
+  { href: "/watchlist", label: "Watchlist", icon: "eye" },
   { href: "/leader", label: "My Plans", icon: "plus", divider: true, match: ["/leader/classic"] },
   { href: "/settings/mandate", label: "Mandate", icon: "shield" },
   { href: "/settings/wallet", label: "Settings", icon: "gear", match: ["/settings/preferences", "/settings"] },

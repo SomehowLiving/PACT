@@ -4,7 +4,7 @@ import { useDeskContext, useMine } from "@/components/DeskContext";
 import { TradingChart, useMarket } from "@/components/TradingChart";
 import { ReferencePrices } from "@/components/ReferencePrices";
 import { SignalList } from "@/components/SignalList";
-import { ActionBadge, Addr, AddrAvatar, Empty, LayerTag, StatusBadge, type Tone } from "@/components/ui";
+import { ActionBadge, Addr, AddrAvatar, Empty, LayerTag, StatusBadge, type Tone, leaderName, LeaderTag } from "@/components/ui";
 import { reasonLabel, usd } from "@/lib/format";
 import type { Timeframe } from "@/lib/market";
 import { effectiveLimitNotionalPrice } from "@/lib/policy";
@@ -348,7 +348,10 @@ function PlanRail({
             <AddrAvatar value={proposal.leader} size={40} />
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
-                <Addr value={proposal.leader} className="text-[14px] font-semibold text-ink" />
+                <Link href={`/leaders/${proposal.leader}`} className="text-[15px] font-semibold text-ink hover:text-accent">
+                  {leaderName(proposal.leader)}
+                </Link>
+                <Addr value={proposal.leader} className="text-mute" />
                 {leader?.isDemo ? <LayerTag layer="demo" compact /> : null}
               </div>
               <div className="mt-0.5 truncate text-[13px] text-mute">{proposal.title}</div>
@@ -556,8 +559,7 @@ function IncomingTable({
                 </td>
                 <td>
                   <span className="inline-flex items-center gap-2">
-                    <AddrAvatar value={p.leader} size={20} />
-                    <Addr value={p.leader} className="text-ink" />
+                    <LeaderTag value={p.leader} size={20} />
                   </span>
                 </td>
                 <td>
@@ -757,23 +759,17 @@ export function Trade() {
           {blotter === "incoming" ? (
             <>
               <div className="flex flex-wrap items-center gap-2 px-4 py-3">
-                {(["ALL", ...ACTIONS] as Filter[]).map((f) => (
-                  <button
-                    key={f}
-                    type="button"
-                    onClick={() => setFilter(f)}
-                    aria-pressed={filter === f}
-                    className={`rounded-md border px-3 py-1.5 text-[12.5px] transition-colors ${
-                      filter === f ? "border-accent bg-[color-mix(in_oklab,var(--accent)_14%,transparent)] text-ink" : "border-line text-mute hover:text-ink"
-                    }`}
-                  >
-                    {f === "ALL" ? "All" : f.charAt(0) + f.slice(1).toLowerCase()}
-                    {f !== "ALL" ? <span className="ml-1.5 tnum text-mute">{counts[f]}</span> : null}
-                  </button>
-                ))}
+                <div className="seg">
+                  {(["ALL", ...ACTIONS] as Filter[]).map((f) => (
+                    <button key={f} type="button" onClick={() => setFilter(f)} aria-pressed={filter === f} data-on={filter === f}>
+                      {f === "ALL" ? "All" : f.charAt(0) + f.slice(1).toLowerCase()}
+                      {f !== "ALL" ? <span className="ml-1.5 tnum opacity-70">{counts[f]}</span> : null}
+                    </button>
+                  ))}
+                </div>
                 <label className="ml-auto flex items-center gap-2 text-[12.5px] text-mute">
                   Sort
-                  <select value={sort} onChange={(e) => setSort(e.target.value as Sort)} className="field w-auto py-1.5 pr-7">
+                  <select value={sort} onChange={(e) => setSort(e.target.value as Sort)} className="field w-auto rounded-full py-1.5 pl-4 pr-8">
                     <option value="newest">Newest</option>
                     <option value="expiring">Expiring soon</option>
                     <option value="size">Largest size</option>
