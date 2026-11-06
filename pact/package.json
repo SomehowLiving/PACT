@@ -13,8 +13,10 @@
   },
   "dependencies": {
     "@tanstack/react-query": "^5.104.2",
+    "@worldcoin/idkit-core": "4.6.0",
     "lightweight-charts": "5.2.1",
     "next": "16.4.5",
+    "qrcode": "1.5.4",
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "viem": "^2.57.5",
@@ -23,6 +25,7 @@
   "devDependencies": {
     "@tailwindcss/turbopack": "^4",
     "@types/node": "^20",
+    "@types/qrcode": "1.5.5",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "babel-plugin-react-compiler": "1.0.0",

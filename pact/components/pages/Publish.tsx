@@ -12,6 +12,7 @@ import Link from "next/link";
 import { useMemo, useState, type ReactNode } from "react";
 import { apiFetch } from "@/lib/api";
 import { EvidenceBadge } from "@/components/pages/discover-parts";
+import { WorldVerifyPanel } from "@/components/WorldVerify";
 
 const GRADE_TONE: Record<LeaderPlanGrade, Tone> = { DISCIPLINED: "good", CAUTION: "warn", INCOMPLETE: "bad" };
 const GRADE_ICON: Record<LeaderPlanGrade, string> = { DISCIPLINED: "●", CAUTION: "!", INCOMPLETE: "✕" };
@@ -285,6 +286,7 @@ export function Publish() {
               height={340}
             />
           </Panel>
+          <WorldVerifyPanel />
           <Panel title="Plan quality preview" subtitle="What followers' policies will see" layer="policy" bodyClassName="grid gap-x-8 px-4 py-2 md:grid-cols-2">
             <dl>
               <KV

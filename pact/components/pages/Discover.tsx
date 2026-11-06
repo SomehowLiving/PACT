@@ -8,6 +8,7 @@ import { CopyDrawer, type DrawerTab } from "@/components/pages/copy-drawer";
 import { COPY_VERDICT, useCopyabilityOf } from "@/components/pages/use-copyability";
 import { TrackRecord } from "@/components/pages/track-record";
 import { useWatchlist, WatchButton } from "@/components/watchlist";
+import { HumanBadge } from "@/components/WorldVerify";
 import type { Copyability, CopyVerdict } from "@/lib/copyability";
 import { reasonLabel, shortAddr } from "@/lib/format";
 import type { Strategy } from "@/lib/types";
@@ -22,7 +23,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
  */
 
 type LeaderActions = ReturnType<typeof useLeaderActions>;
-type Category = "all" | "disciplined" | "caution" | "evidence" | "active" | "twap" | "following" | "demo";
+type Category = "all" | "disciplined" | "caution" | "evidence" | "active" | "twap" | "following" | "demo" | "human";
 type SortKey = "plans" | "rr" | "evidence" | "copyable" | "followers" | "copied" | "drift" | "last";
 const SORT_KEYS: SortKey[] = ["plans", "rr", "evidence", "copyable", "followers", "copied", "drift", "last"];
 const SORT_LABEL: Record<SortKey, string> = {
@@ -37,7 +38,7 @@ const SORT_LABEL: Record<SortKey, string> = {
 };
 const VERDICT_RANK: Record<CopyVerdict, number> = { COPYABLE: 3, PARTLY: 2, NOT_COPYABLE: 1, NO_LIVE_PLANS: 0 };
 
-const CATEGORY_TEST: Record<Category, (r: LeaderRow) => boolean> = {
+const CATEGORY_TEST: Record<Category, (r: LeaderRow, humans: Record<string, string>) => boolean> = {
   all: () => true,
   disciplined: (r) => r.grades.DISCIPLINED > 0 && r.grades.INCOMPLETE === 0 && r.grades.CAUTION === 0,
   caution: (r) => r.grades.CAUTION > 0,
@@ -46,6 +47,7 @@ const CATEGORY_TEST: Record<Category, (r: LeaderRow) => boolean> = {
   twap: (r) => r.orderTypes.includes("twap"),
   following: (r) => r.following,
   demo: (r) => r.isDemo,
+  human: (r, humans) => !!humans[r.leader.toLowerCase()],
 };
 const CHIPS: { value: Category; label: string }[] = [
   { value: "all", label: "All" },
@@ -58,6 +60,7 @@ const MORE_FILTERS: { value: Category; label: string }[] = [
   { value: "following", label: "Following" },
   { value: "twap", label: "Uses TWAP" },
   { value: "demo", label: "DEMO leaders" },
+  { value: "human", label: "Verified human (World ID)" },
 ];
 
 function sortValue(r: LeaderRow, key: SortKey, copyRank: Map<string, number>): number {
@@ -278,7 +281,7 @@ export function Discover({ scope = "all" }: { scope?: "all" | "watchlist" } = {}
   const q = query.trim().toLowerCase();
   const scoped = scope === "watchlist" ? rows.filter((r) => watch.has(r.leader)) : rows;
   const shown = scoped
-    .filter(CATEGORY_TEST[category])
+    .filter((r) => CATEGORY_TEST[category](r, state?.humans ?? {}))
     .filter((r) => {
       if (!q) return true;
       const latest = plansOf(r.leader)[0];
@@ -433,6 +436,7 @@ export function Discover({ scope = "all" }: { scope?: "all" | "watchlist" } = {}
                                 <CopyAddress value={r.leader} />
                                 <WatchButton leader={r.leader} bare />
                                 {r.isDemo ? <LayerTag layer="demo" compact /> : null}
+                                <HumanBadge verifiedAt={state?.humans?.[r.leader.toLowerCase()]} compact />
                                 {r.paused ? <StatusBadge tone="warn">paused</StatusBadge> : null}
                               </span>
                             </div>
@@ -586,7 +590,10 @@ function LeaderPanel({
             <Link href={`/leaders/${row.leader}`} className="block truncate font-[family-name:var(--font-serif)] text-[26px] leading-tight text-ink hover:text-accent">
               {leaderName(row.leader)}
             </Link>
-            <CopyAddress value={row.leader} />
+            <span className="flex items-center gap-2">
+              <CopyAddress value={row.leader} />
+              <HumanBadge verifiedAt={state?.humans?.[row.leader.toLowerCase()]} />
+            </span>
           </div>
         </div>
         <div className="ml-auto shrink-0 pb-1">

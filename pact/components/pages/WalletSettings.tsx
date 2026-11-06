@@ -1,6 +1,7 @@
 "use client";
 
 import { AutopilotPanel } from "@/components/AutopilotPanel";
+import { WorldVerifyPanel } from "@/components/WorldVerify";
 import { Connect } from "@/components/Connect";
 import { useDeskContext } from "@/components/DeskContext";
 import { KV, LayerTag, PageHeader, Panel, Planned, StatusBadge, type Tone } from "@/components/ui";
@@ -165,9 +166,7 @@ export function WalletSettings() {
       </div>
 
       <div className="mt-4 grid gap-3 md:grid-cols-2">
-        <Planned title="World ID">
-          Unique-human eligibility for a public leader directory, or a step-up before a material Autopilot mandate. Never wallet authorization.
-        </Planned>
+        <WorldVerifyPanel />
         <Planned title="Arc live validation">
           Validated on Arc (chain 5042) up to the fill: Flash quotes, the wallet guard passes Flash&apos;s Arc entry and protection
           payloads, the wallet signs both permits and orders, and Flash verifies the signatures (it refused a zero-balance test

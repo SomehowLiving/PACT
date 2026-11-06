@@ -34,6 +34,8 @@ export type RiskContext = {
   leaderProbation?: "PROBATION" | "GRADUATED";
   /** L3 plan-time signals (lib/signals). */
   planSignals?: Signal[];
+  /** World ID: the leader proved they are a unique human (lib/world). */
+  leaderVerifiedHuman?: boolean;
 };
 
 export type ExecutionMetrics = {
@@ -240,6 +242,9 @@ export function decide(
   }
   if (policy.requireGraduatedLeader && context.leaderProbation !== "GRADUATED") {
     return { verdict: "BLOCK", action: "REVIEW", reasons: ["LEADER_ON_PROBATION"] };
+  }
+  if (policy.requireVerifiedHuman && !context.leaderVerifiedHuman) {
+    return { verdict: "BLOCK", action: "REVIEW", reasons: ["LEADER_NOT_VERIFIED_HUMAN"] };
   }
   if (
     policy.requireLeaderExecutionEvidence &&

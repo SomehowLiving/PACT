@@ -90,6 +90,14 @@ await p.locator('main table button[aria-label="Remove from watchlist"]').first()
 await p.waitForTimeout(300);
 check("unstarring empties the watchlist", (await p.getByText("Your watchlist is empty").count()) === 1);
 
+// World ID: config is public and never carries the key; the verify panel is on Wallet settings
+const world = await (await p.request.get(`${BASE}/api/world`)).json();
+check("World ID config is public and keyless", typeof world.enabled === "boolean" && !JSON.stringify(world).match(/private|signing_key/i), JSON.stringify({ enabled: world.enabled, missing: world.missing }));
+await p.goto(`${BASE}/settings/wallet`, { waitUntil: "networkidle" });
+check("Wallet settings shows the World ID panel", (await p.getByText("one unique human per leader address").count()) > 0);
+await p.goto(`${BASE}/settings/mandate`, { waitUntil: "networkidle" });
+check("mandate offers verified-human leaders only", (await p.getByText("Copy only leaders verified as unique humans").count()) > 0);
+
 // canonical order link
 await p.goto(`${BASE}/orders/ord_test_123`, { waitUntil: "networkidle" });
 check("order link opens Orders with that order", p.url().includes("/execution?order=ord_test_123"), p.url());

@@ -7,10 +7,11 @@ import { useLeaderActions } from "@/components/pages/following-actions";
 import { COPY_VERDICT, useCopyabilityOf } from "@/components/pages/use-copyability";
 import { useDeskContext } from "@/components/DeskContext";
 import { TrackRecord } from "@/components/pages/track-record";
-import { ActionBadge, Empty, LayerTag, MetricStrip, PageHeader, Panel, Segmented, StatusBadge, type Tone } from "@/components/ui";
+import { ActionBadge, Empty, LayerTag, leaderName, MetricStrip, PageHeader, Panel, Segmented, StatusBadge, type Tone } from "@/components/ui";
+import { HumanBadge } from "@/components/WorldVerify";
 import type { LeaderRecord } from "@/lib/leader-record";
 import type { LeaderEvidence, LeaderEvidenceStatus, ShadowCopy } from "@/lib/types";
-import { reasonLabel, shortAddr } from "@/lib/format";
+import { reasonLabel } from "@/lib/format";
 import { isDemoAddress, isExpired, leaderRows, relativeTime, rewardRisk } from "@/lib/views";
 import Link from "next/link";
 import { useEffect, useState } from "react";
@@ -75,6 +76,7 @@ export function LeaderPage({ address }: { address: string }) {
   const plans = [...(data?.plans ?? [])].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   const paper = plans.filter((p) => p.shadow);
   const { state, follower } = useDeskContext();
+  const humans = state?.humans;
   const actions = useLeaderActions();
   const copyabilityOf = useCopyabilityOf();
   const copy = copyabilityOf(address);
@@ -107,10 +109,11 @@ export function LeaderPage({ address }: { address: string }) {
       {drawer && row ? <CopyDrawer key={drawer} row={row} tab={drawer} plans={storePlans} onClose={() => setDrawer(null)} /> : null}
       <PageHeader
         eyebrow="Leader profile"
-        title={`Leader ${shortAddr(address)}`}
+        title={leaderName(address)}
         description="Everything here comes from evidence: the leader's own Flash orders and Base trades, PACT's paper copies of each plan (real Flash quotes, no signatures), and what followers' real copies did."
         actions={
           <div className="flex flex-wrap items-center gap-2">
+            <HumanBadge verifiedAt={humans?.[address.toLowerCase()]} />
             {r ? (
               <span title={r.shadow.probationReason}>
                 <StatusBadge tone={r.shadow.probation === "GRADUATED" ? "good" : "warn"} icon={r.shadow.probation === "GRADUATED" ? "✓" : "◷"}>

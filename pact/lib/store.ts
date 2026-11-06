@@ -1,3 +1,4 @@
+import { isVerifiedHuman } from "@/lib/world";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { tokenDecimals } from "./chains";
@@ -639,6 +640,7 @@ export async function createProposal(strategyId: string, follower: `0x${string}`
         activePlanCountForLeader: activePlanCount(follower, strategy.leader),
         leaderProbation: leaderProbation(strategy.leader),
         planSignals: signals,
+        leaderVerifiedHuman: isVerifiedHuman(strategy.leader),
       });
   if (decision.verdict === "MODIFY" && decision.modifiedQty) {
     const capUsd = Number(decision.modifiedQty);

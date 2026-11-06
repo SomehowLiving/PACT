@@ -215,6 +215,8 @@ export type Policy = {
   minLeaderEvidence?: "PLAN_MATCHED" | "ONCHAIN_VERIFIED";
   /** Copy only leaders whose paper copies have settled (probation, handbook R15). */
   requireGraduatedLeader?: boolean;
+  /** Copy only leaders who proved with World ID that they are a unique human (never a skill signal). */
+  requireVerifiedHuman?: boolean;
   /** Largest gap allowed between Flash's quote (or the chart) and the oracle at quote time. */
   maxReferenceDivergence?: string;
   minRewardRisk: number;
@@ -429,4 +431,6 @@ export type DeskState = {
   quotes: Record<string, StoredQuote>;
   receipts: Receipt[];
   logs: AuditLog[];
+  /** Leader address (lowercase) → when they verified as a unique human with World ID. */
+  humans?: Record<string, string>;
 };

@@ -473,6 +473,12 @@ function ExitSection({ draft, errors, patch }: SectionProps) {
           label="Copy only leaders who have passed probation"
           help="PACT paper-copies every new plan with real Flash quotes and no signature. A leader passes once 3 paper copies have settled and none of their plans is contradicted."
         />
+        <Toggle
+          checked={draft.requireVerifiedHuman ?? false}
+          onChange={(v) => patch({ requireVerifiedHuman: v })}
+          label="Copy only leaders verified as unique humans (World ID)"
+          help="A leader proves with World ID that one unique human is behind their wallet, and one human can back only one leader address, so a leader cannot restart under a fresh wallet. It is not a measure of trading skill."
+        />
       </div>
       <p className="mt-4 text-[11.5px] text-mute">Exit mode (Flash TP/SL bracket or manual) is set per leader under Leaders & sizing.</p>
     </Section>

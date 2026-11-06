@@ -455,13 +455,15 @@ function Header({ path, onOpenDrawer, wethPrice, health }: { path: string; onOpe
           <path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11" />
         </svg>
       </button>
-      <Link href="/" className="mr-6 flex shrink-0 items-start font-[family-name:var(--font-serif)] text-[32px] leading-none tracking-[0.02em] text-ink lg:mr-12" title="PACT · desk overview">
+      <Link href="/" className="mr-6 flex shrink-0 items-start font-[family-name:var(--font-serif)] text-[32px] leading-none tracking-[0.02em] text-ink lg:mr-0 lg:w-[218px]" title="PACT · desk overview">
         PACT
         <span className="ml-0.5 -mt-1 text-[18px] text-ink/80" aria-hidden>
           +
         </span>
       </Link>
-      <nav className="hidden items-stretch gap-1 self-stretch lg:flex" aria-label="Workspaces">
+      {/* The logo spans the rail (250px less the header's 32px padding; the 12px item gap plus
+          4px here plus the link padding puts the first label on the content edge). */}
+      <nav className="hidden items-stretch self-stretch lg:flex lg:pl-1" aria-label="Workspaces">
         {GLOBAL.map((w) => {
           const on = active(path, w.href, w.match);
           return (

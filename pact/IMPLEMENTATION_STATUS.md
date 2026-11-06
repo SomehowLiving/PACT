@@ -210,7 +210,7 @@ Test coverage is organized as follows:
 | Permit2 | Built through Flash response path | Approval/permit payload handling and browser checks | PACT validates returned material; it does not replace Flash authorization semantics |
 | wagmi + viem | Built | Wallet connection, chain switch, typed-data/message signing, approval transaction | EVM-only client architecture |
 | GeckoTerminal | Built for one review pair | Base WETH/USDC OHLCV context | Chart is context, not execution price or Flash route truth |
-| World ID | Researched only | No runtime integration | Possible future public-leader uniqueness or high-risk mandate step-up; never wallet authorization |
+| World ID | Built (needs WORLD_RP_ID) | Verified-human leaders: World ID 4.0 proof bound to the leader wallet, one human per leader address, badge, Discover filter, follower policy option | Step-up for Autopilot is still planned; never wallet authorization |
 | Smart-account session keys | Designed only | No runtime integration | Required before Autopilot can exist |
 | Rhinestone / ERC-7579 | Candidate direction only | No SDK or deployed validator | Must be tested with Flash EIP-1271 + Permit2 behavior before selection |
 | 1inch / Uniswap | Not integrated | None | Flash is the execution integration; do not add a second execution router without a product reason |
@@ -681,3 +681,32 @@ without a wallet, the Portfolio tiles and tabs, and the Orders page.
 
 `e2e/ui.e2e.mjs` is now 26 checks (adds star, watchlist, reload, unstar and the order
 link); `components/watchlist.test.ts` covers parsing of stored values.
+
+## World ID: verified-human leaders (Nov 6, 2026)
+
+Implements the decision in `CRITIQUE_AND_WORLD_DECISION.md`: identity only, never trading
+authority and never a skill signal.
+
+- **Flow** (World ID 4.0, IDKit `@worldcoin/idkit-core` 4.6.0): the signed-in leader asks
+  PACT for an RP signature (`POST /api/world/sign`; the signing key stays on the server),
+  IDKit shows a QR code for World App with the leader's address as the signal, and PACT
+  forwards the proof to World's `POST /api/v4/verify/{rp_id}` (`POST /api/world/verify`).
+- **PACT's own checks** before and after World's: right environment, the
+  `pact-verified-leader` action, every response's `signal_hash` equal to the hash of the
+  leader's address, World's success flag. Fails closed on any mismatch.
+- **One human, one leader address**: the nullifier is stored as a decimal integer in
+  `<store>.humans.json`. A second address for the same human, or a second human for the same
+  address, is refused (409). The evidence log records `leader.human_verified` with a SHA-256
+  digest of the nullifier, not the nullifier itself.
+- **Product consequence**: a "Verified human" badge on Discover, the leader panel and the
+  profile; a Discover filter; and a follower mandate option, "Copy only leaders verified as
+  unique humans", enforced in `decide()` (`LEADER_NOT_VERIFIED_HUMAN`, BLOCK/REVIEW) and in
+  the copyability preview.
+- **Where a leader verifies**: Publish (My Plans) and Wallet & Autopilot settings.
+- **Config**: `WORLD_APP_ID`, `WORLD_RP_ID`, `WORLD_PRIVATE_KEY` (the RP signing key) and
+  optional `WORLD_ENV=staging` for the simulator. Without all three it is off and says
+  which value is missing. `WORLD_RP_ID` is not set yet, so no live proof has been verified.
+
+Tests: `lib/world.test.ts` (7: config and key never exposed, request signing, the World
+call, signal/action/environment refusal before calling World, World rejection, one human
+one address with the evidence event, the policy rule). UI e2e 29 checks.
