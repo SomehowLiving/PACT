@@ -101,11 +101,11 @@ export function LeadTicket() {
   return (
     <div className="grid gap-5 lg:grid-cols-[1.1fr_0.9fr]">
       <section className="glass rounded-[32px] p-6 md:p-8">
-        <div className="text-[11px] uppercase tracking-[0.22em] text-mute">
-          intent
+        <div className="text-[11px] uppercase tracking-[0.12em] text-mute">
+          Tool · publish a Flash-shaped order
         </div>
-        <h1 className="mt-2 font-[family-name:var(--font-serif)] text-[36px] italic leading-tight">
-          publish a Flash-shaped order
+        <h1 className="mt-2 font-[family-name:var(--font-serif)] text-[36px] font-medium leading-[1.1] text-ink md:text-[44px]">
+          Classic leader ticket
         </h1>
         <p className="mt-2 max-w-md text-sm text-mute">
           Followers copy the intent, not your key. Policy on their desk can still

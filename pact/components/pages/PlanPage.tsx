@@ -80,14 +80,17 @@ export function PlanPage({ id }: { id: string }) {
     <div>
       {/* Header: identity and the plan's numbers */}
       <div className="panel mb-4">
-        <div className="flex flex-wrap items-center gap-3 border-b border-line px-4 py-3">
-          <Link href="/discover" className="text-[12px] text-mute hover:text-ink" aria-label="Back to leaders">
-            ← Leaders
+        <div className="border-b border-line px-5 pt-4">
+          {/* A plan belongs to its leader: back goes to the leader's plans. */}
+          <Link href={`/leaders/${plan.leader}?tab=plans`} className="text-[13px] text-mute hover:text-ink">
+            ← {leaderName(plan.leader)}
           </Link>
-          <AddrAvatar value={plan.leader} size={34} />
+        </div>
+        <div className="flex flex-wrap items-center gap-3 border-b border-line px-5 py-4">
+          <AddrAvatar value={plan.leader} size={40} />
           <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <h1 className="truncate text-[18px] font-semibold text-ink">{plan.title}</h1>
+            <div className="flex flex-wrap items-center gap-2.5">
+              <h1 className="truncate font-[family-name:var(--font-serif)] text-[30px] font-medium leading-tight text-ink">{plan.title}</h1>
               <SideType plan={plan} />
               <GradeBadge grade={plan.leaderPlanGrade} />
               <EvidenceBadge status={plan.leaderEvidenceStatus} />

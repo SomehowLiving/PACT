@@ -725,3 +725,27 @@ second leader address is refused (409 `HUMAN_ALREADY_BOUND`, also seen across ru
 leader's is held (`LEADER_NOT_VERIFIED_HUMAN`). Before this, World's production verify
 endpoint recognised the RP id and the bridge accepted a production request signed with the
 RP key. A production proof from a real World App has not been run.
+
+## UI consistency pass: one navigation system across every page (Nov 6, 2026)
+
+A crawl of every route found the shell inconsistent from a user's point of view: the rail
+showed Discover's sections on every page (nothing highlighted on Proposals, Portfolio or
+Orders), Leaders/Mandate/Settings were listed in two places, PACT Assist and the Activity log
+were only in the account menu, `/` and `/plans/[id]` sat outside any workspace, settings
+pages had no tabs between them, and older pages kept the glass look and lowercase italic
+titles. Fixed (frontend only):
+
+- The rail follows the workspace (top group) and keeps "You" (My Plans · Mandate · Settings)
+  below; the account menu is now the wallet and the tools. Plan pages belong to Discover and
+  go back to their leader; the desk overview belongs to Portfolio.
+- Settings has tabs (Wallet & Autopilot · Preferences) as real links.
+- Page titles match the navigation (Proposals, Activity log, Settings, Mandate, Demo lab,
+  Classic desk, Classic leader ticket); numbered eyebrows removed; legacy glass surfaces
+  render as the standard panel; the last purple/blue chart colours are warm.
+- Leaders on My Plans and Mandate use the shared leader identity.
+- `lib/copyability.test.ts` pinned its clock: its fixtures expired at 16:00 UTC today and the
+  policy then (correctly) answered WAIT.
+
+`e2e/ui.e2e.mjs` is 33 checks and now enforces: every page shows where you are in the header
+or rail, no destination is listed twice across header, rail and account menu, the rail shows
+the current workspace's sections, Settings tabs are links that back returns from.

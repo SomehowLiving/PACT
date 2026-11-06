@@ -43,7 +43,7 @@ export function Desks({ state }: { state: DeskPayload | null }) {
           <div className="text-[11px] uppercase tracking-[0.22em] text-mute">
             one leader trade · {desks.length} desks
           </div>
-          <h2 className="mt-2 font-[family-name:var(--font-serif)] text-[30px] italic leading-tight md:text-[38px]">
+          <h2 className="mt-2 font-[family-name:var(--font-serif)] text-[30px] font-medium leading-tight md:text-[38px]">
             same trade, your rules
           </h2>
           <p className="mt-1 text-sm text-mute">

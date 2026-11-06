@@ -150,11 +150,11 @@ export function FollowDesk({ reviewProposalId }: { reviewProposalId?: string }) 
   return (
     <div className="grid gap-5 lg:grid-cols-[0.85fr_1.15fr]">
       <section className="glass rounded-[32px] p-6">
-        <div className="text-[11px] uppercase tracking-[0.22em] text-mute">
-          follower workspace
+        <div className="text-[11px] uppercase tracking-[0.12em] text-mute">
+          Tool · the original follower desk
         </div>
-        <h1 className="mt-2 font-[family-name:var(--font-serif)] text-[32px] italic leading-tight">
-          build your copy mandate
+        <h1 className="mt-2 font-[family-name:var(--font-serif)] text-[36px] font-medium leading-[1.1] text-ink md:text-[44px]">
+          Classic desk
         </h1>
         <p className="mt-2 text-sm text-mute">
           Pick leaders, define a budget and exit choice for each, then review every Flash

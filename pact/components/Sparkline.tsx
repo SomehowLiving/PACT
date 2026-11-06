@@ -61,8 +61,8 @@ export function Sparkline({
       >
         <defs>
           <linearGradient id="sparkFill" x1="0" y1="0" x2="0" y2="1">
-            <stop stopColor="#c084fc" stopOpacity="0.35" />
-            <stop offset="1" stopColor="#c084fc" stopOpacity="0" />
+            <stop stopColor="#c9a46a" stopOpacity="0.35" />
+            <stop offset="1" stopColor="#c9a46a" stopOpacity="0" />
           </linearGradient>
         </defs>
         <path d={area} fill="url(#sparkFill)" />
@@ -111,7 +111,7 @@ export function DotMeter({ filled = 8, total = 14 }: { filled?: number; total?: 
               i < filled
                 ? i > filled - 3
                   ? "#e8c9a0"
-                  : "#c4b5fd"
+                  : "#8a7a66"
                 : "rgba(255,255,255,0.12)",
           }}
         />

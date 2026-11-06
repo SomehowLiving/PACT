@@ -98,10 +98,10 @@ export function Floor() {
         <div className="flex items-start justify-between">
           <div>
             <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-gold">
-              your copy portfolio
+              Tool · how PACT works
             </div>
-            <h1 className="mt-2 text-[26px] font-semibold leading-none tracking-tight md:text-[32px]">
-              Copy execution control
+            <h1 className="mt-2 font-[family-name:var(--font-serif)] text-[36px] font-medium leading-[1.1] text-ink md:text-[44px]">
+              Demo lab
             </h1>
             <div className="mt-5 font-mono text-[10px] uppercase tracking-[0.14em] text-mute">
               remaining today

@@ -34,7 +34,7 @@ export function PortfolioSimulation({ state }: { state: DeskPayload | null }) {
           <div className="text-[11px] uppercase tracking-[0.22em] text-mute">
             simulated portfolio run
           </div>
-          <h2 className="mt-2 font-[family-name:var(--font-serif)] text-[30px] italic leading-tight md:text-[38px]">
+          <h2 className="mt-2 font-[family-name:var(--font-serif)] text-[30px] font-medium leading-tight md:text-[38px]">
             one follower, three leaders, one risk budget
           </h2>
           <p className="mt-1 max-w-2xl text-sm text-mute">

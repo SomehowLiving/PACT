@@ -40,6 +40,14 @@ Recommended primary navigation:
 
 Keep wallet connection, active network, notifications, and account/settings controls in the global header. Make **Mandate** reachable from the account/workspace controls and from relevant risk summaries. Do not make PACT Assist a separate global destination; it belongs in the Plans/Proposals workflow.
 
+**As built (Nov 6, 2026, with the user's mockups):** the header shows the five workspaces,
+with "Plans" named **Proposals**. A left rail carries local navigation: its top group is the
+current workspace's sections (Discover: Leaders · Following · Watchlist; Proposals: Proposal
+inbox · PACT Assist; Portfolio: Positions & exposure · Desk overview; Orders: Orders &
+receipts · Activity log). Its bottom group "You" (My Plans · Mandate · Settings) is the
+account/workspace control for what belongs to the user. The account menu holds the wallet and
+the tools only, so no destination appears twice. Trade has no rail (full-width terminal).
+
 Within a workspace, use local tabs for views of the same dataset or object:
 
 - Discover: All / Following / Watchlist.

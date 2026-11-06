@@ -22,7 +22,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
         <Link href="/" className="flex items-center gap-3">
           <Mark size={34} />
           <div className="leading-none">
-            <div className="font-[family-name:var(--font-serif)] text-[26px] italic tracking-tight">
+            <div className="font-[family-name:var(--font-serif)] text-[26px] font-medium tracking-tight">
               pact
             </div>
             <div className="mt-1 text-[10px] uppercase tracking-[0.22em] text-mute">

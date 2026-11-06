@@ -108,7 +108,6 @@ export function LeaderPage({ address }: { address: string }) {
     <div>
       {drawer && row ? <CopyDrawer key={drawer} row={row} tab={drawer} plans={storePlans} onClose={() => setDrawer(null)} /> : null}
       <PageHeader
-        eyebrow="Leader profile"
         title={leaderName(address)}
         description="Everything here comes from evidence: the leader's own Flash orders and Base trades, PACT's paper copies of each plan (real Flash quotes, no signatures), and what followers' real copies did."
         actions={

@@ -2,7 +2,7 @@
 
 import { useDeskContext } from "@/components/DeskContext";
 import { TradingChart } from "@/components/TradingChart";
-import { Addr, Empty, KV, PageHeader, Panel, Segmented, StatusBadge, type Tone } from "@/components/ui";
+import { Addr, Empty, KV, LeaderTag, PageHeader, Panel, Segmented, StatusBadge, type Tone } from "@/components/ui";
 import { CHAIN_IDS } from "@/lib/chains";
 import { usd } from "@/lib/format";
 import { assessLeaderPlan } from "@/lib/policy";
@@ -130,7 +130,6 @@ export function Publish() {
   return (
     <div>
       <PageHeader
-        eyebrow="Leader"
         title="Publish a plan"
         description="Followers copy the plan, never your key. Each follower's own mandate can still scale, hold or decline it."
         actions={
@@ -349,7 +348,7 @@ export function Publish() {
                           <div className="text-[11px] text-mute">{pairLabel(s)} · {s.chain}</div>
                         </td>
                         <td>
-                          <Addr value={s.leader} />
+                          <LeaderTag value={s.leader} size={20} />
                         </td>
                         <td className={s.side === "buy" ? "text-good" : "text-bad"}>
                           {s.side} <span className="text-mute">{s.orderType}</span>

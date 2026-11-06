@@ -1,5 +1,6 @@
 "use client";
 
+import { SettingsTabs } from "@/components/SettingsTabs";
 import { AutopilotPanel } from "@/components/AutopilotPanel";
 import { WorldVerifyPanel } from "@/components/WorldVerify";
 import { Connect } from "@/components/Connect";
@@ -78,10 +79,10 @@ export function WalletSettings() {
   return (
     <div>
       <PageHeader
-        eyebrow="Workspace settings"
-        title="Wallet & connections"
+        title="Settings"
         description="Your wallet is the only authority that can sign a PACT order. This page shows what is connected and which services PACT can reach."
       />
+      <SettingsTabs />
 
       {isDemo ? (
         <div className="mb-4 rounded-lg border border-dashed border-line bg-panel px-4 py-3 text-[12.5px] text-mute">

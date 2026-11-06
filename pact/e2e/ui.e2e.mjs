@@ -62,7 +62,7 @@ check("browser forward returns to the profile", p.url().includes("/leaders/"), p
 await p.getByRole("button", { name: /Account menu|0x/ }).first().click();
 await p.getByRole("menu").waitFor();
 const menu = await p.getByRole("menu").innerText();
-check("account menu holds settings, activity and tools", ["Desk overview", "Activity log", "Mandate & risk", "Wallet & Autopilot", "Preferences", "Demo lab", "Classic desk"].every((t) => menu.includes(t)), menu.replace(/\n/g, " · "));
+check("account menu holds the tools and nothing the rail already has", ["Demo lab", "Classic desk", "Classic leader ticket"].every((t) => menu.includes(t)) && !/Mandate|Activity log|Preferences/.test(menu), menu.replace(/\n/g, " · "));
 check("desk picker is in the header", (await p.locator('header select[aria-label="Desk to view"]').count()) === 1);
 await p.screenshot({ path: OUT + "4-account-menu.png" });
 await p.keyboard.press("Escape");
@@ -110,6 +110,33 @@ for (const r of routes) {
   if (!res || res.status() !== 200) bad.push(`${r} ${res?.status()}`);
 }
 check("every existing route still loads", bad.length === 0, bad.join(", ") || `${routes.length} routes`);
+
+// One navigation system: on every page the header or the rail shows where you are, and no
+// destination is listed twice across header, rail and account menu.
+const lost = [];
+const twice = [];
+for (const r of routes.filter((x) => x !== "/trade")) {
+  await p.goto(`${BASE}${r}`, { waitUntil: "networkidle" });
+  const here = await p.locator('nav[aria-label="Workspaces"] a[aria-current="page"], nav[aria-label="Workspace"] a[aria-current="page"]').count();
+  if (here === 0 && !["/lab", "/follower"].includes(r)) lost.push(r);
+  await p.getByRole("button", { name: /Account menu|0x/ }).first().click();
+  const hrefs = await p.locator('nav[aria-label="Workspaces"] a, nav[aria-label="Workspace"] a, [role="menu"] a').evaluateAll((as) => as.map((a) => a.getAttribute("href")));
+  await p.keyboard.press("Escape");
+  const dup = hrefs.filter((h, i) => hrefs.indexOf(h) !== i && !(h === "/discover" || h === "/proposals" || h === "/portfolio" || h === "/execution"));
+  if (dup.length) twice.push(`${r}: ${[...new Set(dup)].join(" ")}`);
+}
+check("every page shows where you are in the header or the rail", lost.length === 0, lost.join(", ") || "all pages");
+check("no destination is listed twice (beyond a workspace's own first section)", twice.length === 0, twice.join(" | ") || "none");
+
+// The rail follows the workspace
+await p.goto(`${BASE}/execution`, { waitUntil: "networkidle" });
+const ordersRail = await p.locator('nav[aria-label="Workspace"]').innerText();
+check("the rail shows the Orders sections in Orders", ordersRail.includes("Activity log") && !ordersRail.includes("Watchlist"), ordersRail.replace(/\n/g, " · "));
+await p.goto(`${BASE}/settings/wallet`, { waitUntil: "networkidle" });
+await p.locator('nav[aria-label="Settings sections"] a', { hasText: "Preferences" }).click();
+await p.waitForURL(/\/settings\/preferences/);
+await p.goBack({ waitUntil: "networkidle" });
+check("Settings tabs are links and back returns", p.url().endsWith("/settings/wallet"), p.url());
 await p.goto(`${BASE}/proposals`, { waitUntil: "networkidle" });
 check("Proposals is the active workspace on the inbox", (await p.locator('nav[aria-label="Workspaces"] a[aria-current="page"]').innerText()).includes("Proposals"));
 await p.screenshot({ path: OUT + "6-plans-inbox.png" });
@@ -132,7 +159,8 @@ await t.goto(`${BASE}/discover`, { waitUntil: "networkidle" });
 await t.screenshot({ path: OUT + "7-discover-tablet.png" });
 await t.getByRole("button", { name: "Open navigation" }).click();
 await t.getByRole("dialog", { name: "Navigation" }).waitFor();
-check("tablet: one navigation, in a drawer", (await t.getByRole("dialog", { name: "Navigation" }).innerText()).includes("Orders") && (await t.getByRole("dialog", { name: "Navigation" }).innerText()).includes("Activity log"));
+const drawerText = await t.getByRole("dialog", { name: "Navigation" }).innerText();
+check("tablet: one navigation, in a drawer", ["Trade", "Discover", "Proposals", "Portfolio", "Orders", "Watchlist", "My Plans", "Mandate"].every((x) => drawerText.includes(x)), drawerText.replace(/\n/g, " · ").slice(0, 200));
 await t.screenshot({ path: OUT + "8-tablet-drawer.png" });
 const overflow = await t.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
 check("tablet: no horizontal page scroll", !overflow);

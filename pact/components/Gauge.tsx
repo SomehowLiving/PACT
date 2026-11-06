@@ -37,7 +37,7 @@ export function Gauge({
         <defs>
           <linearGradient id="goldArc" x1="22" y1="92" x2="138" y2="20">
             <stop stopColor="#f3d5a8" />
-            <stop offset="1" stopColor="#c084fc" />
+            <stop offset="1" stopColor="#c9a46a" />
           </linearGradient>
         </defs>
       </svg>

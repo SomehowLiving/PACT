@@ -122,8 +122,7 @@ export function Proposals() {
   return (
     <div>
       <PageHeader
-        eyebrow="04 · Proposals"
-        title="Proposal queue"
+        title="Proposals"
         description="Every leader plan you follow, decided against your mandate. PACT only quotes and asks for a signature on COPY and SCALE."
         actions={
           <>

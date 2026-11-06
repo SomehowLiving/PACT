@@ -32,79 +32,71 @@ function useDeskCounts() {
 
 /* ── Navigation model ─────────────────────────────────────────────────── */
 /*
- * One global navigation (PACT_UI_DESIGN_RULES §3): five workspaces in the header, local tabs
- * inside each workspace, everything else in the account menu. Every existing route stays
- * reachable; no destination appears twice.
+ * One navigation system (PACT_UI_DESIGN_RULES §3), no destination listed twice:
+ *  - header: the five workspaces;
+ *  - rail, top: the sections of the workspace you are in (its local navigation);
+ *  - rail, bottom: what is yours (My Plans, Mandate, Settings), the same on every page;
+ *  - account menu: the wallet itself (value, desk, disconnect) and the tools.
+ * Every route belongs to exactly one of these, so the header or the rail always shows where
+ * you are.
  */
 
 type Count = "following" | "awaiting" | "live";
-
-type Workspace = {
-  href: string;
-  label: string;
-  /** Routes that belong to this workspace (segment-exact prefixes). */
-  match: string[];
-  count?: Count;
-  tabs?: { href?: string; label: string; count?: Count; match?: string[]; planned?: string }[];
-};
+type RailIcon = "leaders" | "star" | "eye" | "plus" | "shield" | "gear" | "inbox" | "spark" | "pie" | "home" | "list" | "clock";
+type Section = { href: string; label: string; icon: RailIcon; match?: string[]; count?: Count };
+type Workspace = { href: string; label: string; match: string[]; count?: Count; sections: Section[] };
 
 const WORKSPACES: Workspace[] = [
-  { href: "/trade", label: "Trade", match: ["/trade"] },
+  { href: "/trade", label: "Trade", match: ["/trade"], sections: [] },
   {
     href: "/discover",
     label: "Discover",
-    match: ["/discover", "/following", "/watchlist", "/leaders"],
-    tabs: [
-      { href: "/discover", label: "All leaders", match: ["/leaders"] },
-      { href: "/following", label: "Following", count: "following" },
-      { href: "/watchlist", label: "Watchlist" },
+    match: ["/discover", "/following", "/watchlist", "/leaders", "/plans"],
+    sections: [
+      { href: "/discover", label: "Leaders", icon: "leaders", match: ["/leaders", "/plans"] },
+      { href: "/following", label: "Following", icon: "star", count: "following" },
+      { href: "/watchlist", label: "Watchlist", icon: "eye" },
     ],
   },
   {
     href: "/proposals",
     label: "Proposals",
-    match: ["/proposals", "/review", "/plans", "/assist"],
+    match: ["/proposals", "/review", "/assist"],
     count: "awaiting",
-    tabs: [
-      { href: "/proposals", label: "Proposal inbox", count: "awaiting", match: ["/review"] },
-      { href: "/assist", label: "PACT Assist" },
-      { href: "/leader", label: "My published plans" },
+    sections: [
+      { href: "/proposals", label: "Proposal inbox", icon: "inbox", count: "awaiting", match: ["/review"] },
+      { href: "/assist", label: "PACT Assist", icon: "spark" },
     ],
   },
-  { href: "/portfolio", label: "Portfolio", match: ["/portfolio"] },
+  {
+    href: "/portfolio",
+    label: "Portfolio",
+    match: ["/portfolio", "/"],
+    sections: [
+      { href: "/portfolio", label: "Positions & exposure", icon: "pie" },
+      { href: "/", label: "Desk overview", icon: "home" },
+    ],
+  },
   {
     href: "/execution",
     label: "Orders",
     match: ["/execution", "/orders", "/history"],
     count: "live",
-    tabs: [
-      { href: "/execution", label: "Orders & receipts" },
-      { href: "/history", label: "Activity log" },
-    ],
-  },
-  {
-    href: "/settings/mandate",
-    label: "Account",
-    match: ["/settings"],
-    tabs: [
-      { href: "/settings/mandate", label: "Mandate & risk", match: ["/settings"] },
-      { href: "/settings/wallet", label: "Wallet & Autopilot" },
-      { href: "/settings/preferences", label: "Preferences" },
+    sections: [
+      { href: "/execution", label: "Orders & receipts", icon: "list", match: ["/orders"] },
+      { href: "/history", label: "Activity log", icon: "clock" },
     ],
   },
 ];
 
-/** Header destinations: the five workspaces. Account lives in the account menu. */
-const GLOBAL = WORKSPACES.filter((w) => w.label !== "Account");
-
-const ACCOUNT_LINKS: { href: string; label: string; hint?: string }[] = [
-  { href: "/", label: "Desk overview" },
-  { href: "/assist", label: "PACT Assist" },
-  { href: "/history", label: "Activity log" },
-  { href: "/settings/mandate", label: "Mandate & risk" },
-  { href: "/settings/wallet", label: "Wallet & Autopilot" },
-  { href: "/settings/preferences", label: "Preferences" },
+/** Yours, on every page: the plans you publish, your mandate, your wallet settings. */
+const YOU: Section[] = [
+  { href: "/leader", label: "My Plans", icon: "plus", match: ["/leader/classic"] },
+  { href: "/settings/mandate", label: "Mandate", icon: "shield" },
+  { href: "/settings/wallet", label: "Settings", icon: "gear", match: ["/settings/preferences"] },
 ];
+
+const GLOBAL = WORKSPACES;
 
 const TOOL_LINKS: { href: string; label: string }[] = [
   { href: "/lab", label: "Demo lab · how PACT works" },
@@ -112,12 +104,15 @@ const TOOL_LINKS: { href: string; label: string }[] = [
   { href: "/leader/classic", label: "Classic leader ticket" },
 ];
 
+/** "/" matches only itself; anything else matches the route and everything below it. */
 function active(path: string, href: string, match?: string[]) {
-  if (href === "/") return path === "/";
-  return path === href || path.startsWith(`${href}/`) || !!match?.some((m) => path === m || path.startsWith(`${m}/`));
+  const hit = (h: string) => (h === "/" ? path === "/" : path === h || path.startsWith(`${h}/`));
+  return hit(href) || !!match?.some(hit);
 }
 
-
+function workspaceOf(path: string) {
+  return WORKSPACES.find((w) => active(path, w.href, w.match));
+}
 
 /* ── Wallet value (account menu) ──────────────────────────────────────── */
 
@@ -337,7 +332,7 @@ function WalletMenu({ wethPrice }: { wethPrice?: number }) {
           aria-expanded={open}
           aria-haspopup="menu"
           aria-label="Account menu"
-          title="Settings, activity and tools"
+          title="Desk and tools"
           className="btn h-10 w-10 p-0"
         >
           <WalletGlyph />
@@ -418,31 +413,21 @@ function DeskSelect({ compact = false }: { compact?: boolean }) {
   );
 }
 
+/** Tools live only here; settings and logs are in the rail. */
 function MenuLinks({ onClose }: { onClose: () => void }) {
   return (
-    <>
-      <ul className="mt-2 border-t border-line pt-1.5">
-        {ACCOUNT_LINKS.map((l) => (
+    <div className="mt-2 border-t border-line pt-1.5">
+      <div className="px-2 pb-0.5 text-[10.5px] uppercase tracking-wide text-mute">Tools</div>
+      <ul>
+        {TOOL_LINKS.map((l) => (
           <li key={l.href}>
-            <Link href={l.href} onClick={onClose} role="menuitem" className="block rounded px-2 py-1.5 text-[13px] text-ink/85 hover:bg-panel-2 hover:text-ink">
+            <Link href={l.href} onClick={onClose} role="menuitem" className="block rounded px-2 py-1.5 text-[12.5px] text-mute hover:bg-panel-2 hover:text-ink">
               {l.label}
             </Link>
           </li>
         ))}
       </ul>
-      <div className="mt-1.5 border-t border-line pt-1.5">
-        <div className="px-2 pb-0.5 text-[10.5px] uppercase tracking-wide text-mute">Tools</div>
-        <ul>
-          {TOOL_LINKS.map((l) => (
-            <li key={l.href}>
-              <Link href={l.href} onClick={onClose} role="menuitem" className="block rounded px-2 py-1.5 text-[12.5px] text-mute hover:bg-panel-2 hover:text-ink">
-                {l.label}
-              </Link>
-            </li>
-          ))}
-        </ul>
-      </div>
-    </>
+    </div>
   );
 }
 
@@ -490,7 +475,6 @@ function Header({ path, onOpenDrawer, wethPrice, health }: { path: string; onOpe
 
 /* ── Left rail ────────────────────────────────────────────────────────── */
 
-type RailIcon = "leaders" | "star" | "eye" | "plus" | "shield" | "gear";
 
 function RailGlyph({ name }: { name: RailIcon }) {
   const p = { width: 18, height: 18, viewBox: "0 0 18 18", fill: "none", stroke: "currentColor", strokeWidth: 1.35, strokeLinecap: "round" as const, strokeLinejoin: "round" as const, "aria-hidden": true };
@@ -505,51 +489,69 @@ function RailGlyph({ name }: { name: RailIcon }) {
       return <svg {...p}><path d="M9 3.5v11M3.5 9h11" /></svg>;
     case "shield":
       return <svg {...p}><path d="M9 2.5 14 4.4v4.3c0 3.1-2.1 5.6-5 6.8-2.9-1.2-5-3.7-5-6.8V4.4Z" /><path d="m6.8 9 1.6 1.6L11.4 7.6" /></svg>;
+    case "inbox":
+      return <svg {...p}><path d="M2.5 10.5 4.6 4h8.8l2.1 6.5V14H2.5Z" /><path d="M2.5 10.5h3.8l.9 1.6h3.6l.9-1.6h3.8" /></svg>;
+    case "spark":
+      return <svg {...p}><path d="M7.5 3 8.8 7.2 13 8.5 8.8 9.8 7.5 14 6.2 9.8 2 8.5 6.2 7.2Z" /><path d="M13.5 2.5 14 4l1.5.5L14 5l-.5 1.5L13 5l-1.5-.5L13 4Z" /></svg>;
+    case "pie":
+      return <svg {...p}><path d="M9 2.5A6.5 6.5 0 1 0 15.5 9H9Z" /><path d="M11.2 2.8a6.5 6.5 0 0 1 4 4H11.2Z" /></svg>;
+    case "home":
+      return <svg {...p}><path d="m2.8 8.2 6.2-5 6.2 5" /><path d="M4.5 7v7.5h9V7" /></svg>;
+    case "list":
+      return <svg {...p}><path d="M6.5 4.5h9M6.5 9h9M6.5 13.5h9" /><circle cx="3" cy="4.5" r=".8" fill="currentColor" /><circle cx="3" cy="9" r=".8" fill="currentColor" /><circle cx="3" cy="13.5" r=".8" fill="currentColor" /></svg>;
+    case "clock":
+      return <svg {...p}><circle cx="9" cy="9" r="6.5" /><path d="M9 5.2V9l2.6 1.6" /></svg>;
     case "gear":
       return <svg {...p}><circle cx="9" cy="9" r="2.3" /><path d="M9 2.5v1.6M9 13.9v1.6M15.5 9h-1.6M4.1 9H2.5M13.6 4.4l-1.1 1.1M5.5 12.5l-1.1 1.1M13.6 13.6l-1.1-1.1M5.5 5.5 4.4 4.4" /></svg>;
   }
 }
 
-const RAIL: { href?: string; label: string; icon: RailIcon; match?: string[]; count?: Count; planned?: string; divider?: boolean }[] = [
-  { href: "/discover", label: "Leaders", icon: "leaders", match: ["/leaders"] },
-  { href: "/following", label: "Following", icon: "star", count: "following" },
-  { href: "/watchlist", label: "Watchlist", icon: "eye" },
-  { href: "/leader", label: "My Plans", icon: "plus", divider: true, match: ["/leader/classic"] },
-  { href: "/settings/mandate", label: "Mandate", icon: "shield" },
-  { href: "/settings/wallet", label: "Settings", icon: "gear", match: ["/settings/preferences", "/settings"] },
-];
-
-function Rail({ path, onNavigate }: { path: string; onNavigate?: () => void }) {
+function RailLink({ item, path, onNavigate }: { item: Section; path: string; onNavigate?: () => void }) {
   const counts = useDeskCounts();
+  // A section owns its route and the routes in its match list; "Settings" must not light up on Mandate.
+  const on = active(path, item.href, item.match);
+  return (
+    <Link
+      href={item.href}
+      onClick={onNavigate}
+      aria-current={on ? "page" : undefined}
+      className={`flex items-center gap-3.5 rounded-xl px-4 py-3 text-[15px] transition-colors ${on ? "bg-panel-3 text-ink" : "text-ink/75 hover:bg-panel-2 hover:text-ink"}`}
+    >
+      <RailGlyph name={item.icon} />
+      <span className="flex-1">{item.label}</span>
+      {item.count ? <CountPill value={counts[item.count]} /> : null}
+    </Link>
+  );
+}
+
+/** The rail: this workspace's sections on top, what is yours below. */
+function Rail({ path, onNavigate }: { path: string; onNavigate?: () => void }) {
+  const ws = workspaceOf(path);
+  const sections = ws?.sections ?? [];
   return (
     <nav aria-label="Workspace" className="flex h-full flex-col px-4 pt-6">
-      <ul className="space-y-1.5">
-        {RAIL.map((item) => {
-          const on = item.href ? active(path, item.href, item.match) && !(item.href === "/settings/wallet" && path === "/settings/mandate") : false;
-          return (
-            <li key={item.label} className={item.divider ? "mt-5 border-t border-line pt-5" : ""}>
-              {item.href ? (
-                <Link
-                  href={item.href}
-                  onClick={onNavigate}
-                  aria-current={on ? "page" : undefined}
-                  className={`flex items-center gap-3.5 rounded-xl px-4 py-3 text-[15px] transition-colors ${on ? "bg-panel-3 text-ink" : "text-ink/75 hover:bg-panel-2 hover:text-ink"}`}
-                >
-                  <RailGlyph name={item.icon} />
-                  <span className="flex-1">{item.label}</span>
-                  {item.count ? <CountPill value={counts[item.count]} /> : null}
-                </Link>
-              ) : (
-                <span title={item.planned} className="flex cursor-not-allowed items-center gap-3.5 rounded-xl px-4 py-3 text-[15px] text-ink/35">
-                  <RailGlyph name={item.icon} />
-                  <span className="flex-1">{item.label}</span>
-                  <span className="text-[10px] uppercase tracking-wide">soon</span>
-                </span>
-              )}
+      {sections.length ? (
+        <>
+          <div className="px-4 pb-2 text-[11px] uppercase tracking-[0.12em] text-mute">{ws!.label}</div>
+          <ul className="space-y-1.5">
+            {sections.map((item) => (
+              <li key={item.href}>
+                <RailLink item={item} path={path} onNavigate={onNavigate} />
+              </li>
+            ))}
+          </ul>
+        </>
+      ) : null}
+      <div className={sections.length ? "mt-5 border-t border-line pt-5" : ""}>
+        <div className="px-4 pb-2 text-[11px] uppercase tracking-[0.12em] text-mute">You</div>
+        <ul className="space-y-1.5">
+          {YOU.map((item) => (
+            <li key={item.href}>
+              <RailLink item={item} path={path} onNavigate={onNavigate} />
             </li>
-          );
-        })}
-      </ul>
+          ))}
+        </ul>
+      </div>
       {/* A faint ridge line at the foot of the rail. */}
       <svg aria-hidden viewBox="0 0 240 120" className="pointer-events-none mt-auto w-full opacity-60" preserveAspectRatio="none">
         <defs>

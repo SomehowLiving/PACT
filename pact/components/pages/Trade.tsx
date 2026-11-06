@@ -762,7 +762,7 @@ export function Trade() {
                 <div className="seg">
                   {(["ALL", ...ACTIONS] as Filter[]).map((f) => (
                     <button key={f} type="button" onClick={() => setFilter(f)} aria-pressed={filter === f} data-on={filter === f}>
-                      {f === "ALL" ? "All" : f.charAt(0) + f.slice(1).toLowerCase()}
+                      {f === "ALL" ? "All" : f}
                       {f !== "ALL" ? <span className="ml-1.5 tnum opacity-70">{counts[f]}</span> : null}
                     </button>
                   ))}

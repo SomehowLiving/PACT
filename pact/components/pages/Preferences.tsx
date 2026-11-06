@@ -1,5 +1,6 @@
 "use client";
 
+import { SettingsTabs } from "@/components/SettingsTabs";
 import { PageHeader, Panel, Planned, Segmented, StatusBadge } from "@/components/ui";
 import { useEffect, useState, type ReactNode } from "react";
 
@@ -58,8 +59,7 @@ export function Preferences() {
   return (
     <div>
       <PageHeader
-        eyebrow="Workspace settings"
-        title="Preferences"
+        title="Settings"
         description="Display choices for this browser only. They never change your mandate, a policy decision, or an order."
         actions={
           storage === "unavailable" ? (
@@ -69,6 +69,7 @@ export function Preferences() {
           ) : null
         }
       />
+      <SettingsTabs />
 
       <Panel title="Display" subtitle="Saved in this browser's local storage" bodyClassName="px-4">
         <Row

@@ -90,7 +90,6 @@ export function Overview() {
         receipts on this machine are cleared. Nothing on-chain is affected.
       </ConfirmDialog>
       <PageHeader
-        eyebrow="01 · Overview"
         title={isDemo ? `Demo desk · ${policy.label}` : "Your desk"}
         description="What needs a decision, how much of your mandate is in use, and whether execution stayed inside it."
         actions={

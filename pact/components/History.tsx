@@ -31,9 +31,9 @@ export function History() {
       <section className="glass rounded-[32px] p-6 md:p-8">
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
-            <div className="text-[11px] uppercase tracking-[0.22em] text-mute">audit trail</div>
-            <h1 className="mt-2 font-[family-name:var(--font-serif)] text-[36px] italic leading-tight">
-              every decision, on the record
+            <div className="text-[11px] uppercase tracking-[0.12em] text-mute">Orders · audit trail</div>
+            <h1 className="mt-2 font-[family-name:var(--font-serif)] text-[36px] font-medium leading-[1.1] text-ink md:text-[44px]">
+              Activity log
             </h1>
             <p className="mt-2 max-w-xl text-sm text-mute">
               Each proposal is hashed with the policy that judged it. The hashes show which rules

@@ -52,7 +52,6 @@ export function Following() {
 
   const header = (
     <PageHeader
-      eyebrow="03 · Following"
       title="Following"
       description="The leaders you selected and the individual mandate each one runs under. Every leader has its own daily sleeve inside your portfolio limits."
       actions={

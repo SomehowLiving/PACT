@@ -84,9 +84,11 @@
   color: #eff6ff;
 }
 
+/* Legacy surfaces render as the standard panel, so older tools look like the rest of PACT. */
 .glass {
-  background: var(--glass);
+  background: var(--panel);
   border: 1px solid var(--line);
+  border-radius: 14px !important;
 }
 
 .hairline {
@@ -95,7 +97,7 @@
 
 .orb {
   border-radius: 999px;
-  background: #2563eb;
+  background: radial-gradient(circle at 35% 30%, var(--accent-strong), var(--accent) 55%, #6b5233);
   box-shadow: none;
 }
 

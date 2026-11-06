@@ -1,7 +1,7 @@
 "use client";
 
 import { useDeskContext } from "@/components/DeskContext";
-import { AddrAvatar, Addr, LayerTag, PageHeader, Panel, Planned, StatusBadge } from "@/components/ui";
+import { LayerTag, LeaderTag, PageHeader, Panel, Planned, StatusBadge } from "@/components/ui";
 import { CHAIN_IDS } from "@/lib/chains";
 import type { AutomationMode, Chain, FollowerExitMode, LeaderMandate, OrderType, Policy, Side } from "@/lib/types";
 import Link from "next/link";
@@ -152,8 +152,7 @@ export function Mandate() {
   return (
     <div>
       <PageHeader
-        eyebrow="Workspace settings"
-        title="Mandate & risk controls"
+        title="Mandate"
         description="Your mandate is the authority boundary for every copied plan: how much each leader may size, which limits cap it, how concentrated it may get, and how it exits. PACT applies it before any Flash quote."
         actions={<LayerTag layer="policy" />}
       />
@@ -302,8 +301,7 @@ function SizingSection({ draft, errors, patch, patchMandate }: SectionProps & { 
             return (
               <div key={leader} className="rounded-lg border border-line bg-panel-2 p-3">
                 <div className="flex flex-wrap items-center gap-2.5">
-                  <AddrAvatar value={leader} size={24} />
-                  <Addr value={leader} className="text-ink" />
+                  <LeaderTag value={leader} size={24} showAddr />
                   {paused ? (
                     <StatusBadge tone="warn" icon="◷">
                       paused

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { defaultPolicy, USDC, WETH } from "./constants";
 import { copyability, previewPlan, type CopyContext } from "./copyability";
 import type { LeaderMandate, Strategy } from "./types";
@@ -6,6 +6,15 @@ import type { LeaderMandate, Strategy } from "./types";
 const L = "0x1111111111111111111111111111111111111111" as const;
 const F = "0x2222222222222222222222222222222222222222" as const;
 const NOW = Date.parse("2026-11-06T12:00:00Z");
+// decide() reads the clock for plan expiry: pin it so the fixtures' windows stay open.
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(NOW);
+});
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 const empty: CopyContext = { dailySpentUsd: 0, leaderDailySpentUsd: 0, activePlanCount: 0, activePlanCountForLeader: 0, assetExposureUsd: 0 };
 
 function plan(extra: Partial<Strategy> = {}): Strategy {
