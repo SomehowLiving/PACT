@@ -123,7 +123,7 @@ async function newSession(browser, account, { tamperQuote = false } = {}) {
   }, account.address);
 
   // The throwaway wallet has no gas: answer the approve receipt, pass everything else through.
-  await page.route(/mainnet\.base\.org/, async (route) => {
+  await page.route(/mainnet\.base\.org|mainnet\.arc\.io/, async (route) => {
     const req = route.request();
     let body;
     try {
@@ -469,6 +469,42 @@ try {
       decision?.reasons?.includes("LEADER_SIZE_OUT_OF_CHARACTER") && Number(copy.qty) < 400 * 0.25,
       `${decision?.verdict} ${decision?.action} qty ${copy?.qty} · ${decision?.reasons?.join(", ")}`,
     );
+  }
+
+  // ---------- Case 7: Arc ----------
+  console.log("\n# Case 7: the same follower flow on Arc (chain 5042)");
+  {
+    const f = privateKeyToAccount(generatePrivateKey());
+    const s7 = await newSession(browser, f);
+    await connect(s7.page, f.address);
+    const cookie = await signInNode(f);
+    const current = (await api(`/api/policy?follower=${f.address}`)).json.policy;
+    const saved = await api("/api/policy", { ...current, follows: [LEADER], allowChains: ["base", "arc"] }, cookie);
+    check("a follower opts into Arc in their mandate", saved.status === 200, `status ${saved.status}`);
+    const pub = await publish({ chain: "arc", orderType: "twap", qty: "100", durationSeconds: 600, ...(await disciplinedPlan()) });
+    check("a leader publishes an Arc plan", pub.json.strategy.chain === "arc", pub.json.strategy.targetAsset);
+    await s7.page.reload({ waitUntil: "networkidle" });
+    const copy7 = await openNewestReview(s7, f.address, "twap");
+    check("the copy is on Arc", copy7.chain === "arc", copy7.chain);
+    const sign7 = s7.page.getByRole("button", { name: "sign", exact: true }).first();
+    await sign7.waitFor({ timeout: 15000 });
+    const order7 = s7.page.waitForResponse((r) => r.url().includes("/api/order") && r.request().method() === "POST", { timeout: 60000 }).catch(() => null);
+    await sign7.click();
+    const o7 = await order7;
+    const body7 = o7 ? await o7.json().catch(() => null) : null;
+    const guard7 = await s7.page.getByText(/safe to sign/).first().textContent().catch(() => null);
+    check("the wallet guard passes Flash's Arc payloads in the browser", Boolean(guard7?.includes("safe to sign")), guard7?.slice(0, 60) ?? "missing");
+    const typedChains = s7.wallet.log.filter((l) => l.startsWith("typed:")).length;
+    check("the wallet signed the Arc permits and orders", typedChains >= 2, s7.wallet.log.join(" → "));
+    // A zero-balance wallet: Flash checking the balance means it accepted the Arc signatures.
+    const err = body7?.error ?? "";
+    check(
+      "Flash verified the Arc signatures and answered on balance",
+      Boolean(o7) && (Boolean(body7?.order?.orderId) || /balance/i.test(err)) && !/signature/i.test(err),
+      `${o7?.status()} ${err.slice(0, 140) || body7?.order?.orderId}`,
+    );
+    await s7.page.screenshot({ path: join(OUT, "8-arc-review.png") });
+    await s7.ctx.close();
   }
 } finally {
   await browser.close();

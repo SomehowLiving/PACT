@@ -167,7 +167,9 @@ export function WalletSettings() {
           Unique-human eligibility for a public leader directory, or a step-up before a material Autopilot mandate. Never wallet authorization.
         </Planned>
         <Planned title="Arc live validation">
-          Arc is configured (chain 5042) but has no recorded PACT quote, sign and fill yet.
+          Validated on Arc (chain 5042) up to the fill: Flash quotes, the wallet guard passes Flash&apos;s Arc entry and protection
+          payloads, the wallet signs both permits and orders, and Flash verifies the signatures (it refused a zero-balance test
+          wallet on balance). Opt in under Mandate → chains. A funded Arc fill is still to be recorded.
         </Planned>
       </div>
     </div>

@@ -154,6 +154,41 @@ describe.skipIf(!LIVE)("Flash live quotes (no orders)", () => {
     expect(Math.abs(check!.quoteVsOracleBps!)).toBeLessThan(300);
   }, 30_000);
 
+  it("Arc (5042): quotes, and the wallet guard passes Flash's real Arc payloads, entry and protection", async () => {
+    const arc = CHAINS.arc;
+    const stop = "1500";
+    const quote = await postQuote(
+      quoteRequest({
+        chain: "arc",
+        targetAsset: arc.weth,
+        contraAsset: arc.usdc,
+        side: "buy",
+        qty: "20",
+        orderType: "twap",
+        funderAddress: FUNDER,
+        durationSeconds: 600,
+        twapBucketCount: 2,
+        attachedBracket: { takeProfit: { notionalPrice: "4000" }, stopLoss: { notionalPrice: stop }, expireTime: inHours(24) },
+        planExpiresAt: inHours(4),
+      }),
+    );
+    const m = executionMetrics(quote, "buy");
+    expect(Number(m.executionPrice)).toBeGreaterThan(500);
+    const entry = verifySigning({ chain: "arc", follower: FUNDER, side: "buy", targetAsset: arc.weth, contraAsset: arc.usdc, qty: "20", quote: quote.evm ?? {} });
+    const protection = verifyBracketSigning({
+      chain: "arc",
+      follower: FUNDER,
+      targetAsset: arc.weth,
+      contraAsset: arc.usdc,
+      entryQty: "20",
+      priceFloor: bracketPriceFloor({ stopLossPrice: stop }),
+      signedMaxFromAmount: quote.attachedBracket?.signedMaxFromAmount,
+      quote: quote.attachedBracket?.evm ?? {},
+    });
+    const fails = [...entry.checks, ...protection.checks].filter((c) => c.level === "fail");
+    expect(fails.map((c) => `${c.id}: ${c.detail}`)).toEqual([]);
+  }, 30_000);
+
   it("marks an open position at Flash's exit quote, net of fees and below the mid", async () => {
     const { exitMark } = await import("./marks");
     const { assetPrice } = await import("./price");
