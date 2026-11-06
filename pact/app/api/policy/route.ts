@@ -34,6 +34,10 @@ export async function POST(req: Request) {
         mandate.allowOrderTypes.length > 0 &&
         (mandate.exitMode === "FOLLOWER_BRACKET" || mandate.exitMode === "MANUAL"),
     );
+  // Only a selected leader can be paused.
+  const pausedValid = (body.pausedLeaders ?? []).every((paused) =>
+    (body.follows ?? []).some((leader) => leader.toLowerCase() === paused.toLowerCase()),
+  );
   const bad =
     !(body.maxNotionalUsd > 0) ||
     !(body.maxDailyUsd >= body.maxNotionalUsd) ||
@@ -47,12 +51,14 @@ export async function POST(req: Request) {
     !(body.maxOpenPlans >= 1) ||
     !(body.maxOpenPlansPerLeader >= 1) ||
     !(Number(body.maxEntryDrift) >= 0) ||
+    !(body.maxExecutionCost === undefined || (Number(body.maxExecutionCost) > 0 && Number(body.maxExecutionCost) <= 0.3)) ||
     !(Number(body.maxPriceImpact) >= 0) ||
     !(Number(body.maxSlippage) >= 0) ||
     !(body.minRewardRisk >= 1) ||
     (body.follows?.length ?? 0) > 3 ||
     (body.mandates?.length ?? 0) > 3 ||
     !mandatesValid ||
+    !pausedValid ||
     !body.allowChains?.length ||
     !body.allowOrderTypes?.length ||
     !body.allowSides?.length;

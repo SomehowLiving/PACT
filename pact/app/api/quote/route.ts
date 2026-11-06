@@ -1,6 +1,6 @@
 import { INTEGRATOR_FEE_BPS } from "@/lib/constants";
 import { executionMetrics, postQuote, quoteRequest } from "@/lib/flash";
-import { verifySigning } from "@/lib/guard";
+import { bracketPriceFloor, verifyBracketSigning, verifySigning } from "@/lib/guard";
 import { decideExecution, effectiveLimitNotionalPrice } from "@/lib/policy";
 import {
   decisionFor,
@@ -52,8 +52,7 @@ export async function POST(req: Request) {
   const effectiveLimit = effectiveLimitNotionalPrice(proposal, policy);
 
   try {
-    const quote = await postQuote(
-      quoteRequest({
+    const request = quoteRequest({
         chain: proposal.chain,
         targetAsset: proposal.targetAsset,
         contraAsset: proposal.contraAsset,
@@ -69,8 +68,10 @@ export async function POST(req: Request) {
         maxSlippage: proposal.maxSlippage,
         maxPriceImpact: proposal.maxPriceImpact,
         attachedBracket,
-      }),
-    );
+        // A resting copy (and its TWAP) must not outlive the leader's copy window.
+        planExpiresAt: proposal.expiresAt,
+      });
+    const quote = await postQuote(request);
     const metrics = executionMetrics(quote, proposal.side);
     const executionDecision = decideExecution(proposal, policy, metrics);
     if (executionDecision) {
@@ -100,7 +101,9 @@ export async function POST(req: Request) {
       proposal.id,
     );
 
-    // Same guard the follower's browser runs. A quote that fails is never stored or served.
+    // Same guard the follower's browser runs, on the entry AND the protection pair. A quote
+    // that fails is never stored or served.
+    const expectedVault = process.env.NEXT_PUBLIC_FLASH_VAULT || undefined;
     const guard = verifySigning({
       chain: proposal.chain,
       follower: proposal.follower,
@@ -109,11 +112,27 @@ export async function POST(req: Request) {
       contraAsset: proposal.contraAsset,
       qty,
       otherOpenUnits,
+      expectedVault,
       quote: quote.evm ?? {},
     });
-    if (!guard.ok) {
+    const bracketGuard =
+      attachedBracket && quote.attachedBracket?.evm
+        ? verifyBracketSigning({
+            chain: proposal.chain,
+            follower: proposal.follower,
+            targetAsset: proposal.targetAsset,
+            contraAsset: proposal.contraAsset,
+            entryQty: qty,
+            priceFloor: bracketPriceFloor(proposal),
+            signedMaxFromAmount: quote.attachedBracket.signedMaxFromAmount,
+            otherOpenUnits: openSpendUnits(proposal.follower, proposal.chain, proposal.targetAsset, proposal.id),
+            expectedVault,
+            quote: quote.attachedBracket.evm,
+          })
+        : undefined;
+    if (!guard.ok || (bracketGuard && !bracketGuard.ok)) {
       return Response.json(
-        { error: "guard rejected the Flash quote", guard },
+        { error: "guard rejected the Flash quote", guard, bracketGuard },
         { status: 502 },
       );
     }
@@ -136,8 +155,14 @@ export async function POST(req: Request) {
         : proposal.notionalUsd,
       estimatedPriceImpact: metrics.estimatedPriceImpact,
       executionPrice: metrics.executionPrice,
+      allInPrice: metrics.allInPrice,
+      feeNotional: metrics.feeNotional,
+      costRatio: metrics.costRatio,
       declaredLimitNotionalPrice: proposal.limitNotionalPrice,
       effectiveLimitNotionalPrice: effectiveLimit,
+      limitBasis: request.limitCrossPrice ? "cross" : request.limitNotionalPrice ? "notional" : undefined,
+      maxPriceImpact: request.maxPriceImpact,
+      maxSlippage: request.maxSlippage,
       attachedBracket:
         attachedBracket && quote.attachedBracket
           ? {
@@ -160,7 +185,7 @@ export async function POST(req: Request) {
       raw: quote,
     });
 
-    return Response.json({ quote: stored, guard, feeBps: INTEGRATOR_FEE_BPS, otherOpenUnits });
+    return Response.json({ quote: stored, guard, bracketGuard, feeBps: INTEGRATOR_FEE_BPS, otherOpenUnits });
   } catch (e) {
     return Response.json(
       { error: e instanceof Error ? e.message : "quote failed" },

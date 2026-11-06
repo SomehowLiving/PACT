@@ -12,8 +12,24 @@ export type Candle = {
   volume: number;
 };
 
+export type Timeframe = "1m" | "5m" | "15m" | "1h" | "4h" | "1d";
+
+export const TIMEFRAMES: Record<Timeframe, { period: "minute" | "hour" | "day"; aggregate: number; limit: number }> = {
+  "1m": { period: "minute", aggregate: 1, limit: 180 },
+  "5m": { period: "minute", aggregate: 5, limit: 96 },
+  "15m": { period: "minute", aggregate: 15, limit: 120 },
+  "1h": { period: "hour", aggregate: 1, limit: 168 },
+  "4h": { period: "hour", aggregate: 4, limit: 120 },
+  "1d": { period: "day", aggregate: 1, limit: 90 },
+};
+
+export function isTimeframe(value: unknown): value is Timeframe {
+  return typeof value === "string" && value in TIMEFRAMES;
+}
+
 export type MarketSnapshot = {
   source: "GeckoTerminal";
+  timeframe: Timeframe;
   pair: string;
   poolAddress: string;
   dex: string;
@@ -72,14 +88,22 @@ function asCandle(row: unknown): Candle | undefined {
   return { time, open, high, low, close, volume };
 }
 
-export async function baseWethUsdcMarket(): Promise<MarketSnapshot> {
-  const key = "base-weth-usdc-5m";
+// The pool rarely changes; cache it separately so switching timeframes costs one call.
+let poolCache: { pools: Pool[]; at: number } | undefined;
+
+async function wethPools() {
+  if (poolCache && Date.now() - poolCache.at < 5 * CACHE_MS) return poolCache.pools;
+  const pools = await getJson<{ data?: Pool[] }>(`/networks/base/tokens/${WETH}/pools?page=1`);
+  poolCache = { pools: pools.data ?? [], at: Date.now() };
+  return poolCache.pools;
+}
+
+export async function baseWethUsdcMarket(timeframe: Timeframe = "5m"): Promise<MarketSnapshot> {
+  const key = `base-weth-usdc-${timeframe}`;
   const hit = cache.get(key);
   if (hit && Date.now() - hit.at < CACHE_MS) return hit.value;
 
-  const pools = await getJson<{ data?: Pool[] }>(
-    `/networks/base/tokens/${WETH}/pools?page=1`,
-  );
+  const pools = { data: await wethPools() };
   const weth = tokenId(WETH);
   const usdc = tokenId(USDC);
   const pool = pools.data?.find((candidate) => {
@@ -94,7 +118,7 @@ export async function baseWethUsdcMarket(): Promise<MarketSnapshot> {
   const ohlcv = await getJson<{
     data?: { attributes?: { ohlcv_list?: unknown[] } };
   }>(
-    `/networks/base/pools/${address}/ohlcv/minute?aggregate=5&limit=96&currency=usd&token=${token}`,
+    `/networks/base/pools/${address}/ohlcv/${TIMEFRAMES[timeframe].period}?aggregate=${TIMEFRAMES[timeframe].aggregate}&limit=${TIMEFRAMES[timeframe].limit}&currency=usd&token=${token}`,
   );
   const candles = (ohlcv.data?.attributes?.ohlcv_list ?? [])
     .map(asCandle)
@@ -106,6 +130,7 @@ export async function baseWethUsdcMarket(): Promise<MarketSnapshot> {
   if (!currentPrice) throw new Error("market price unavailable");
   const value: MarketSnapshot = {
     source: "GeckoTerminal",
+    timeframe,
     pair: pool.attributes?.name ?? "WETH / USDC",
     poolAddress: address,
     dex: pool.relationships?.dex?.data?.id ?? "unknown",

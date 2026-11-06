@@ -7,6 +7,7 @@ import {
   decide,
   decideExecution,
   effectiveLimitNotionalPrice,
+  leaderPauseDecision,
   stopRiskSizing,
 } from "./policy";
 import type { Policy, OrderType, Proposal, Side } from "./types";
@@ -392,5 +393,34 @@ describe("stopRiskSizing", () => {
         2,
       ),
     ).toBeUndefined();
+  });
+});
+
+describe("leader pause", () => {
+  it("returns WAIT for a paused leader, case-insensitively, and nothing otherwise", () => {
+    const leader = "0x1111111111111111111111111111111111111111";
+    expect(leaderPauseDecision({ pausedLeaders: [leader] }, leader.toUpperCase().replace("0X", "0x"))).toEqual({
+      verdict: "BLOCK",
+      action: "WAIT",
+      reasons: ["LEADER_PAUSED"],
+    });
+    expect(leaderPauseDecision({ pausedLeaders: [] }, leader)).toBeUndefined();
+    expect(leaderPauseDecision({}, leader)).toBeUndefined();
+  });
+});
+
+describe("execution cost budget", () => {
+  const p = { maxPriceImpact: "0.005", maxEntryDrift: "0.01", maxExecutionCost: "0.03" };
+  it("holds a copy whose fees exceed the follower's cost budget even at the declared entry", () => {
+    expect(decideExecution({ entryReferencePrice: "2500" }, p, { executionPrice: "2500", costRatio: "0.04" })).toEqual({
+      verdict: "BLOCK",
+      action: "WAIT",
+      reasons: ["EXECUTION_COST_TOO_HIGH"],
+    });
+    expect(decideExecution({ entryReferencePrice: "2500" }, p, { executionPrice: "2510", costRatio: "0.017" })).toBeUndefined();
+    // Older policies without the field use the 3% default.
+    expect(decideExecution({ entryReferencePrice: "2500" }, { maxPriceImpact: "0.005", maxEntryDrift: "0.01" }, { costRatio: "0.05" })?.reasons).toEqual([
+      "EXECUTION_COST_TOO_HIGH",
+    ]);
   });
 });

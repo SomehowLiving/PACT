@@ -26,46 +26,50 @@
   --font-mono: var(--font-ibm);
 }
 
-* {
-  box-sizing: border-box;
-}
+/* Element defaults belong in the base layer. Left unlayered they would override every
+   component and utility class (e.g. `a { color }` beat `text-accent` on links). */
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
 
-html,
-body {
-  min-height: 100%;
-}
+  html,
+  body {
+    min-height: 100%;
+  }
 
-html {
-  background-color: #0a0e13;
-}
+  html {
+    background-color: #0a0e13;
+  }
 
-body {
-  margin: 0;
-  color: var(--ink);
-  background-color: #0a0e13;
-  caret-color: transparent;
-  font-family: var(--font-outfit), ui-sans-serif, system-ui, sans-serif;
-}
+  body {
+    margin: 0;
+    color: var(--ink);
+    background-color: #0a0e13;
+    caret-color: transparent;
+    font-family: var(--font-outfit), ui-sans-serif, system-ui, sans-serif;
+  }
 
-body::before {
-  display: none;
-}
+  body::before {
+    display: none;
+  }
 
-a {
-  color: inherit;
-  text-decoration: none;
-}
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
 
-button,
-input,
-select {
-  font: inherit;
-}
+  button,
+  input,
+  select {
+    font: inherit;
+  }
 
-input,
-textarea,
-[contenteditable] {
-  caret-color: var(--gold);
+  input,
+  textarea,
+  [contenteditable] {
+    caret-color: var(--gold);
+  }
 }
 
 .btn-cream {
@@ -114,4 +118,252 @@ textarea,
   font-size: 9px;
   letter-spacing: 0.08em;
   padding: 2px 5px;
+}
+
+/* ───────────────────────── Terminal design system (v2) ─────────────────────────
+   Brand colours stay the same. Status colours come from the reserved status
+   palette and always ship with an icon + label. Layer colours keep market data,
+   policy decisions and execution evidence visually distinct. */
+:root {
+  --bg: #0a0e13;
+  --panel: #10161d;
+  --panel-2: #141c25;
+  --panel-3: #1a2430;
+  --line-2: #1b242e;
+  --accent: #60a5fa;
+  --accent-strong: #2563eb;
+  --good: #22b14c;
+  --good-ink: #4ade80;
+  --warn: #fab219;
+  --warn-ink: #fcc94d;
+  --bad: #d03b3b;
+  --bad-ink: #fb7185;
+  --layer-market: #9085e9;
+  --layer-policy: #60a5fa;
+  --layer-exec: #22d3ee;
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --series-3: #199e70;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-panel: var(--panel);
+  --color-panel-2: var(--panel-2);
+  --color-panel-3: var(--panel-3);
+  --color-line-2: var(--line-2);
+  --color-accent: var(--accent);
+  --color-good: var(--good-ink);
+  --color-warn: var(--warn-ink);
+  --color-bad: var(--bad-ink);
+  --color-market: var(--layer-market);
+  --color-policy: var(--layer-policy);
+  --color-exec: var(--layer-exec);
+}
+
+/* Component classes live in the components layer so Tailwind utilities (lg:hidden,
+   h-7, px-3, bg-*) can still override them. Unlayered CSS would beat every utility. */
+@layer components {
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+  min-height: 44px;
+}
+
+.panel-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+  letter-spacing: 0.01em;
+}
+
+.label {
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--mute);
+}
+
+.tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+.tbl {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+
+.tbl th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--panel);
+  text-align: left;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--mute);
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+
+.tbl td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line-2);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.tbl tbody tr {
+  transition: background 120ms;
+}
+
+.tbl tbody tr:hover {
+  background: var(--panel-2);
+}
+
+.tbl tbody tr[data-selected="true"] {
+  background: var(--panel-3);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.tbl .r {
+  text-align: right;
+}
+
+.seg {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+}
+
+.seg button {
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 12px;
+  color: var(--mute);
+  white-space: nowrap;
+}
+
+.seg button[data-on="true"] {
+  background: var(--panel-3);
+  color: var(--ink);
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border-radius: 8px;
+  padding: 7px 12px;
+  font-size: 12.5px;
+  font-weight: 500;
+  border: 1px solid var(--line);
+  color: var(--ink);
+  background: var(--panel-2);
+  transition: border-color 120ms, background 120ms;
+  white-space: nowrap;
+}
+
+.btn:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background: var(--accent-strong);
+  border-color: var(--accent-strong);
+  color: #eff6ff;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: #1d4ed8;
+}
+
+.btn-ghost {
+  background: transparent;
+}
+
+.btn-danger-solid {
+  background: var(--bad);
+  border-color: var(--bad);
+  color: #fff;
+}
+
+.btn-danger-solid:hover:not(:disabled) {
+  background: #b83131;
+  border-color: #b83131;
+}
+
+/* Buy / sign action: the follower's go-ahead colour, distinct from the brand blue. */
+.btn-buy {
+  background: var(--good);
+  border-color: var(--good);
+  color: #04120a;
+}
+
+.btn-buy:hover:not(:disabled) {
+  background: #2cc25a;
+  border-color: #2cc25a;
+}
+
+/* Dense blotter rows for the trade terminal. */
+.tbl-tight th,
+.tbl-tight td {
+  padding-left: 9px;
+  padding-right: 9px;
+}
+
+.btn-danger {
+  background: transparent;
+  border-color: color-mix(in oklab, var(--bad) 55%, transparent);
+  color: var(--bad-ink);
+}
+
+.field {
+  width: 100%;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  padding: 7px 10px;
+  font-size: 12.5px;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.field:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.scroll-thin {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
+}
+
+.planned-hatch {
+  background-image: repeating-linear-gradient(
+    135deg,
+    transparent 0 7px,
+    color-mix(in oklab, var(--line) 55%, transparent) 7px 8px
+  );
+}
 }

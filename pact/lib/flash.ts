@@ -1,5 +1,5 @@
 import { FLASH_BASE, INTEGRATOR_FEE_BPS, RESTING_ORDER_SECONDS } from "./constants";
-import { cancelMessage } from "./typed";
+import { batchCancelMessage, cancelMessage } from "./typed";
 import type { AttachedBracket, Chain, OrderType, Side, Trigger } from "./types";
 
 function key() {
@@ -8,16 +8,27 @@ function key() {
   return k;
 }
 
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 async function flash<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${FLASH_BASE}${path}`, {
-    ...init,
-    headers: {
-      "x-definitive-api-key": key(),
-      "content-type": "application/json",
-      ...(init?.headers ?? {}),
-    },
-    cache: "no-store",
-  });
+  // Reads may retry on 429 (Flash allows 5 req/s per endpoint per key). Writes never retry:
+  // a POST /order can create an order even when it returns an error.
+  const isRead = !init?.method || init.method === "GET";
+  let res: Response;
+  for (let attempt = 0; ; attempt++) {
+    res = await fetch(`${FLASH_BASE}${path}`, {
+      ...init,
+      headers: {
+        "x-definitive-api-key": key(),
+        "content-type": "application/json",
+        ...(init?.headers ?? {}),
+      },
+      cache: "no-store",
+    });
+    if (res.status !== 429 || !isRead || attempt >= 2) break;
+    const reset = Number(res.headers.get("ratelimit-reset"));
+    await sleep(Number.isFinite(reset) && reset > 0 ? Math.min(reset, 5) * 1000 : 1_000 * (attempt + 1));
+  }
   const text = await res.text();
   let body: unknown = text;
   try {
@@ -51,6 +62,8 @@ export type QuoteBody = {
   /** ISO end time. Resting orders only: Flash rejects it on TWAP and market orders. */
   expireTime?: string;
   limitNotionalPrice?: string;
+  /** Pair-rate limit (contra per target). Required instead of notional on a limit + attached bracket. */
+  limitCrossPrice?: string;
   triggers?: Trigger[];
   attachedBracket?: AttachedBracket;
   maxSlippage?: string;
@@ -86,66 +99,127 @@ export type FlashQuote = {
   };
   from?: { notional?: string; amount?: string; symbol?: string };
   to?: { notional?: string; amount?: string; symbol?: string };
+  /** Total estimated fee in USD: Definitive platform fee + network fee + integrator fee. */
+  fees?: { estimatedFeeNotional?: string };
 };
 
+const num = (v?: string | null) => {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : undefined;
+};
+
+/**
+ * Quote metrics. Two different prices, kept apart on purpose:
+ * - `executionPrice` is the market price of the target asset (what Flash's limit price bounds),
+ *   used for entry drift.
+ * - `allInPrice` is what the follower actually pays per target unit including fees (buys:
+ *   USD spent ÷ target received; sells: USD received ÷ target sold), used for disclosure.
+ * Fees are a separate cost line (`feeNotional`, `costRatio`), checked against their own budget.
+ */
 export function executionMetrics(quote: FlashQuote, side: Side) {
-  const pricedAsset = side === "buy" ? quote.to : quote.from;
-  const pricedNotional = Number(pricedAsset?.notional);
-  const pricedAmount = Number(pricedAsset?.amount);
-  const fromAmount = Number(quote.from?.amount);
-  const toAmount = Number(quote.to?.amount);
+  const buy = side === "buy";
+  const pricedAsset = buy ? quote.to : quote.from;
+  const pricedNotional = num(pricedAsset?.notional);
+  const pricedAmount = num(pricedAsset?.amount);
+  const fromAmount = num(quote.from?.amount);
+  const toAmount = num(quote.to?.amount);
+  const fromNotional = num(quote.from?.notional);
+  const toNotional = num(quote.to?.notional);
+  const feeNotional = num(quote.fees?.estimatedFeeNotional);
+
   const executionPrice =
-    Number.isFinite(pricedNotional) &&
-    pricedNotional > 0 &&
-    Number.isFinite(pricedAmount) &&
-    pricedAmount > 0
+    pricedNotional && pricedNotional > 0 && pricedAmount && pricedAmount > 0
       ? pricedNotional / pricedAmount
-      : Number.isFinite(fromAmount) && fromAmount > 0 && Number.isFinite(toAmount) && toAmount > 0
-      ? side === "buy"
-        ? fromAmount / toAmount
-        : toAmount / fromAmount
+      : fromAmount && fromAmount > 0 && toAmount && toAmount > 0
+        ? buy
+          ? fromAmount / toAmount
+          : toAmount / fromAmount
+        : undefined;
+
+  // Buys: `to` is already net of fees, so USD spent ÷ WETH received is the all-in price.
+  // Sells: the integrator fee is not taken out of `to`, so subtract the estimated fee.
+  const allInPrice = buy
+    ? fromNotional && toAmount && toAmount > 0
+      ? fromNotional / toAmount
+      : undefined
+    : toNotional !== undefined && fromAmount && fromAmount > 0
+      ? (toNotional - (feeNotional ?? 0)) / fromAmount
       : undefined;
+  const sizeUsd = buy ? fromNotional : toNotional;
+  const costRatio = feeNotional !== undefined && sizeUsd && sizeUsd > 0 ? feeNotional / sizeUsd : undefined;
+
   return {
     estimatedPriceImpact: quote.estimatedPriceImpact,
     executionPrice: executionPrice?.toString(),
+    allInPrice: allInPrice?.toString(),
+    feeNotional: feeNotional?.toString(),
+    costRatio: costRatio?.toString(),
   };
 }
 
+/** Fill statuses Flash reports. Only finalised fills are execution facts. */
+export const FINAL_FILL = "CHAIN_STATUS_FINALIZED";
+export const REORGED_FILL = "CHAIN_STATUS_REORGED";
+
+/**
+ * Execution metrics from Flash's own report. Never uses `fillPrice` (spent-per-received, so it
+ * is inverted on sells). Prefers Flash's `filled.averageNotionalPrice`; otherwise derives the
+ * price from finalised fills' contra ÷ target amounts. Reorged fills are ignored, unconfirmed
+ * fills are counted as pending.
+ */
 export function fillExecutionMetrics(
-  fills: Array<{ fillPrice?: string; notional?: string }>,
+  report: { filled?: FlashOrderFilled | null; fills?: FlashFillRow[] },
   side: Side,
   declaredEntryPrice?: string,
 ) {
-  const priced = fills
-    .map((fill) => ({ price: Number(fill.fillPrice), weight: Number(fill.notional) }))
-    .filter((fill) => Number.isFinite(fill.price) && fill.price > 0);
-  if (!priced.length) return {};
+  const fills = (report.fills ?? []).filter((fill) => fill.status !== REORGED_FILL);
+  const final = fills.filter((fill) => !fill.status || fill.status === FINAL_FILL);
+  const pendingFillCount = fills.length - final.length;
 
-  const weighted = priced.filter((fill) => Number.isFinite(fill.weight) && fill.weight > 0);
-  const averageFillPrice = weighted.length
-    ? weighted.reduce((sum, fill) => sum + fill.price * fill.weight, 0) /
-      weighted.reduce((sum, fill) => sum + fill.weight, 0)
-    : priced.reduce((sum, fill) => sum + fill.price, 0) / priced.length;
-  const entry = Number(declaredEntryPrice);
+  const target = final.reduce((sum, fill) => sum + (num(fill.targetAmount) ?? 0), 0);
+  const contra = final.reduce((sum, fill) => sum + (num(fill.contraAmount) ?? 0), 0);
+  const reported = num(report.filled?.averageNotionalPrice);
+  const averageFillPrice = reported && reported > 0 ? reported : target > 0 && contra > 0 ? contra / target : undefined;
+
+  const sum = (key: keyof FlashFillRow) => {
+    const values = final.map((fill) => num(fill[key] as string | undefined)).filter((v): v is number => v !== undefined);
+    return values.length ? values.reduce((a, b) => a + b, 0) : undefined;
+  };
+  const entry = num(declaredEntryPrice);
   const entryDriftBps =
-    Number.isFinite(entry) && entry > 0
+    averageFillPrice !== undefined && entry && entry > 0
       ? ((side === "buy" ? averageFillPrice - entry : entry - averageFillPrice) / entry) * 10_000
       : undefined;
+
   return {
-    averageFillPrice: averageFillPrice.toString(),
+    averageFillPrice: averageFillPrice?.toString(),
     entryDriftBps,
+    finalFillCount: final.length,
+    pendingFillCount,
+    feesUsd: sum("feeNotional"),
+    networkFeesUsd: sum("networkFeeNotional"),
+    tradeFeesUsd: sum("tradeFeeNotional"),
+    integratorFeesUsd: sum("integratorFeeNotional"),
   };
 }
 
 export function quoteRequest(
   input: Omit<
     QuoteBody,
-    "forceMinimalAllowance" | "evmUsePermit2" | "flashIntegratorFeeBps" | "targetChain" | "contraChain"
-  > & { chain?: Chain; nowMs?: number },
+    "forceMinimalAllowance" | "evmUsePermit2" | "flashIntegratorFeeBps" | "targetChain" | "contraChain" | "expireTime"
+  > & {
+    chain?: Chain;
+    nowMs?: number;
+    /** End of the leader's copy window. A resting copy must not outlive the plan it copies. */
+    planExpiresAt?: string;
+  },
 ): QuoteBody {
   const chain = input.chain ?? "base";
+  const now = input.nowMs ?? Date.now();
+  const maxRest = now + RESTING_ORDER_SECONDS * 1000;
+  const planEnd = Date.parse(input.planExpiresAt ?? "");
   const expireTime = new Date(
-    (input.nowMs ?? Date.now()) + RESTING_ORDER_SECONDS * 1000,
+    Number.isFinite(planEnd) && planEnd > now ? Math.min(planEnd, maxRest) : maxRest,
   ).toISOString();
   const body: QuoteBody = {
     targetChain: chain,
@@ -162,6 +236,14 @@ export function quoteRequest(
   };
   if (input.orderType === "twap") {
     body.durationSeconds = input.durationSeconds ?? 600;
+    // The copy's TWAP must finish inside the leader's copy window.
+    if (Number.isFinite(planEnd) && planEnd > now) {
+      const start = Date.parse(input.startTime ?? "");
+      const begin = Number.isFinite(start) && start > now ? start : now;
+      const room = Math.floor((planEnd - begin) / 1000);
+      if (room < 300) throw new Error("plan window ends before a 5-minute TWAP could finish");
+      body.durationSeconds = Math.min(body.durationSeconds, room);
+    }
     if (body.durationSeconds < 300) {
       throw new Error("TWAP durationSeconds must be at least 300 seconds");
     }
@@ -185,9 +267,21 @@ export function quoteRequest(
     body.maxSlippage = input.maxSlippage ?? "0.01";
   }
   if (input.orderType === "limit") {
-    if (input.limitNotionalPrice) body.limitNotionalPrice = input.limitNotionalPrice;
+    if (input.limitNotionalPrice) {
+      // Flash v1 rejects limitNotionalPrice on a limit entry that carries an attached bracket
+      // and requires the pair rate instead. With USDC as contra the two are the same number.
+      if (input.attachedBracket) body.limitCrossPrice = input.limitNotionalPrice;
+      else body.limitNotionalPrice = input.limitNotionalPrice;
+    }
     body.maxPriceImpact = input.maxPriceImpact ?? "0.005";
     body.expireTime = expireTime;
+  }
+  // The protection pair may not expire before the entry it protects.
+  if (body.attachedBracket && body.expireTime) {
+    const pairEnd = Date.parse(body.attachedBracket.expireTime ?? "");
+    if (Number.isFinite(pairEnd) && pairEnd < Date.parse(body.expireTime)) {
+      body.attachedBracket = { ...body.attachedBracket, expireTime: body.expireTime };
+    }
   }
   if (
     input.orderType === "stop-loss" ||
@@ -223,7 +317,13 @@ export type OrderBody = {
   evmOrderTypedData: string;
   evmPermitTypedData?: string;
   evmPermitSignature?: string;
-  attachedBracket?: AttachedBracket & {
+  /**
+   * Submit shape of the attached pair (OpenAPI SubmitOrderRequest.attachedBracket). The pair's
+   * expireTime is a quote-only field: it is already baked into the signed `deadline`.
+   */
+  attachedBracket?: {
+    takeProfit: AttachedBracket["takeProfit"];
+    stopLoss: AttachedBracket["stopLoss"];
     userSignature: string;
     salt?: string;
     deadline?: string;
@@ -233,32 +333,83 @@ export type OrderBody = {
   };
   triggers?: Trigger[];
   limitNotionalPrice?: string;
+  limitCrossPrice?: string;
+  /** Echo the quote's protections; when omitted Flash applies its own default at admission. */
+  maxPriceImpact?: string;
+  maxSlippage?: string;
   flashIntegratorFeeBps?: string;
+  erc8021AttributionCode?: string;
   twapBucketCount?: number;
   startTime?: string;
 };
 
+export type SubmitOrderResponse = {
+  orderId: string;
+  attachedBracket?: { status?: AttachedBracketStatus } | null;
+};
+
 export function postOrder(body: OrderBody) {
-  return flash<{ orderId: string }>("/order", {
+  return flash<SubmitOrderResponse>("/order", {
     method: "POST",
     body: JSON.stringify(body),
   });
 }
 
-// POST /order and cancel responses are a flat order; GET /orders/{id} wraps it as
-// { order, fills } and requires the funder address as a query parameter.
+export type AttachedBracketStatus = "pending_activation" | "never_activated" | "active";
+
+/** GET /orders/{id} `order` (OpenAPI FlashOrder), the fields PACT reads. */
 export type FlashOrder = {
   orderId?: string;
+  orderType?: string;
+  side?: Side;
   status?: string;
   closeReason?: string | null;
+  funderAddress?: string;
+  recipientAddress?: string | null;
+  qty?: string;
+  filled?: FlashOrderFilled | null;
+  limitNotionalPrice?: string | null;
+  limitCrossPrice?: string | null;
+  maxPriceImpact?: string | null;
   twapBucketCount?: number | null;
+  trigger?: Trigger | null;
+  integratorFeeBps?: string | null;
+  tradeFeeBps?: string | null;
+  attachedBracket?: {
+    status?: AttachedBracketStatus;
+    bracketOrderId?: string | null;
+    takeProfit?: { notionalPrice?: string | null; crossPrice?: string | null; limitPrice?: string | null } | null;
+    stopLoss?: { notionalPrice?: string | null; crossPrice?: string | null; limitPrice?: string | null } | null;
+    signedMaxFromAmount?: string | null;
+    expiresAt?: string | null;
+  } | null;
+  sourceEntryOrderId?: string | null;
+  placedAt?: string | null;
+  closedAt?: string | null;
+  expiresAt?: string | null;
 };
 
+export type FlashOrderFilled = {
+  targetAmount?: string;
+  contraAmount?: string;
+  averagePrice?: string;
+  averageNotionalPrice?: string;
+};
+
+/** OpenAPI FlashFill. `fillPrice` is spent-per-received; do not read it as a USD price. */
 export type FlashFillRow = {
+  status?: string;
   transactionId?: string;
   fillPrice?: string;
   notional?: string;
+  targetAmount?: string;
+  contraAmount?: string;
   filledAt?: string;
+  venues?: string[];
+  feeNotional?: string;
+  tradeFeeNotional?: string;
+  networkFeeNotional?: string;
+  integratorFeeNotional?: string;
 };
 
 export type FlashOrderDetail = { order: FlashOrder; fills: FlashFillRow[] };
@@ -269,9 +420,64 @@ export function getOrder(orderId: string, funderAddress: string) {
   );
 }
 
-export function postCancel(orderId: string, userSignature: string) {
-  return flash<FlashOrder>(`/orders/${orderId}/cancel`, {
+/** Flash statuses from which an order can still be cancelled. */
+export const CANCELLABLE_STATUSES = ["ORDER_STATUS_PENDING", "ORDER_STATUS_ACCEPTED", "ORDER_STATUS_PARTIALLY_FILLED"];
+
+export type CancelOutcome = { orderId: string; ok: boolean; alreadyFilled?: boolean; error?: string };
+
+/** Single cancel. 422 "already filled" means the order executed; it is reported, not thrown. */
+export async function postCancel(orderId: string, userSignature: string): Promise<CancelOutcome> {
+  try {
+    await flash<{ ok: true }>(`/orders/${orderId}/cancel`, {
+      method: "POST",
+      body: JSON.stringify({ cancelMessage: cancelMessage(orderId), userSignature }),
+    });
+    return { orderId, ok: true };
+  } catch (e) {
+    const status = (e as { status?: number }).status;
+    const message = e instanceof Error ? e.message : "cancel failed";
+    if (status === 422 && /fill/i.test(message)) return { orderId, ok: false, alreadyFilled: true, error: message };
+    throw e;
+  }
+}
+
+/** Batch cancel: up to 25 orders with one funder signature over `batchCancelMessage(orderIds)`. */
+export async function postBatchCancel(orderIds: string[], userSignature: string): Promise<CancelOutcome[]> {
+  const ids = orderIds.map((id) => id.toLowerCase());
+  const res = await flash<{ results?: { orderId: string; ok: boolean; errorCode?: string }[] }>("/orders/cancel", {
     method: "POST",
-    body: JSON.stringify({ cancelMessage: cancelMessage(orderId), userSignature }),
+    body: JSON.stringify({ orderIds: ids, cancelMessage: batchCancelMessage(ids), userSignature }),
   });
+  // PENDING_CANCEL: a cancel is already in flight, so treat it as cancelled.
+  return (res.results ?? []).map((r) => {
+    const ok = r.ok || r.errorCode === "PENDING_CANCEL";
+    return {
+      orderId: r.orderId,
+      ok,
+      alreadyFilled: r.errorCode === "ALREADY_FILLED",
+      error: ok ? undefined : r.errorCode,
+    };
+  });
+}
+
+/** Open orders for a funder (used to reconcile a submit that returned an error). */
+export function listOrders(funderAddress: string, pageSize = 50) {
+  return flash<{ orders?: FlashOrder[]; nextPageToken?: string | null }>(
+    `/orders?funderAddress=${encodeURIComponent(funderAddress)}&pageSize=${pageSize}`,
+  );
+}
+
+export type FlashTokenBalance = {
+  chain?: string;
+  address?: string;
+  symbol?: string;
+  tokenDecimals?: number;
+  balance?: string;
+  notional?: string;
+  isNative?: boolean;
+};
+
+/** Flat wallet balances across chains (scam and unpriced tokens are omitted by Flash). */
+export function getBalances(address: string) {
+  return flash<{ balances?: FlashTokenBalance[] }>(`/balances/${encodeURIComponent(address)}`);
 }

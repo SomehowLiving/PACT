@@ -167,8 +167,19 @@ async function newSession(browser, account, { tamperQuote = false } = {}) {
 
 async function connect(page, address) {
   await page.goto(`${BASE}/follower`, { waitUntil: "networkidle" });
-  await page.getByRole("button", { name: "connect", exact: true }).click();
-  await page.getByText(new RegExp(address.slice(0, 6), "i")).first().waitFor({ timeout: 15000 });
+  await page.getByRole("button", { name: /^connect( wallet)?$/i }).click();
+  await page.getByText(new RegExp(address.slice(0, 6), "i")).filter({ visible: true }).first().waitFor({ timeout: 15000 });
+}
+
+// Signing happens on the proposal's review page (/review/[id]); open the newest one.
+async function openNewestReview(session, follower, orderType) {
+  const st = await api(`/api/state?follower=${follower}`);
+  const mine = (st.json?.proposals ?? [])
+    .filter((p) => p.follower.toLowerCase() === follower.toLowerCase() && (!orderType || p.orderType === orderType))
+    .sort((x, y) => y.createdAt.localeCompare(x.createdAt));
+  if (!mine[0]) throw new Error(`no proposal for ${follower}`);
+  await session.page.goto(`${BASE}/review/${mine[0].id}`, { waitUntil: "networkidle" });
+  return mine[0];
 }
 
 async function followLeader(follower) {
@@ -201,18 +212,21 @@ try {
   await api("/api/strategies", {
     leader: LEADER,
     orderType: "twap",
-    qty: "10",
+    // $100 leader plan → $25 follower copy (25%). A $2.50 copy fails PACT's execution-cost
+    // budget: Flash fees with protection are well over 3% at that size.
+    qty: "100",
     durationSeconds: 600,
     ...plan1,
   });
   await s1.page.reload({ waitUntil: "networkidle" });
-  await s1.page.getByText(new RegExp(a.address.slice(0, 6), "i")).first().waitFor({ timeout: 15000 });
+  await s1.page.getByText(new RegExp(a.address.slice(0, 6), "i")).filter({ visible: true }).first().waitFor({ timeout: 15000 });
   await s1.page.getByText("ETH accumulation pact").first().waitFor({ timeout: 15000 });
   await s1.page.screenshot({ path: join(OUT, "1-follower-connected.png") });
 
-  const policyEditor = await s1.page.getByText("your limits").count();
+  const policyEditor = await s1.page.getByText(/your limits|save limits/).count();
   check("policy editor is visible once connected", policyEditor > 0);
 
+  await openNewestReview(s1, a.address, "twap");
   const signBtn = s1.page.getByRole("button", { name: "sign", exact: true }).first();
   await signBtn.waitFor({ timeout: 15000 });
   check("sign is enabled for an ALLOW proposal", await signBtn.isEnabled());
@@ -285,12 +299,15 @@ try {
   await api("/api/strategies", {
     leader: LEADER,
     orderType: "twap",
-    qty: "10",
+    // $100 leader plan → $25 follower copy (25%). A $2.50 copy fails PACT's execution-cost
+    // budget: Flash fees with protection are well over 3% at that size.
+    qty: "100",
     durationSeconds: 600,
     ...plan2,
   });
   await s2.page.reload({ waitUntil: "networkidle" });
-  await s2.page.getByText(new RegExp(b.address.slice(0, 6), "i")).first().waitFor({ timeout: 15000 });
+  await s2.page.getByText(new RegExp(b.address.slice(0, 6), "i")).filter({ visible: true }).first().waitFor({ timeout: 15000 });
+  await openNewestReview(s2, b.address, "twap");
   const sign2 = s2.page.getByRole("button", { name: "sign", exact: true }).first();
   await sign2.waitFor({ timeout: 15000 });
   await sign2.click();
@@ -316,6 +333,7 @@ try {
     ...plan3,
   });
   await s3.page.reload({ waitUntil: "networkidle" });
+  await openNewestReview(s3, c.address, "market");
   await s3.page.getByText("sign locked").first().waitFor({ timeout: 15000 });
   const lockedBtn = s3.page.getByRole("button", { name: "sign locked" }).first();
   check("sign is disabled on BLOCK", await lockedBtn.isDisabled());

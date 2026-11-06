@@ -35,6 +35,7 @@ export function defaultPolicy(follower: `0x${string}`): Policy {
     maxOpenPlans: 3,
     maxOpenPlansPerLeader: 1,
     maxEntryDrift: "0.01",
+    maxExecutionCost: "0.03",
     requirePlanProtection: true,
     requireLeaderPlanQuality: false,
     requireLeaderExecutionEvidence: false,

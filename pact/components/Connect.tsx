@@ -15,19 +15,17 @@ export function Connect() {
     return (
       <div className="flex items-center gap-2">
         {chainId !== base.id ? (
-          <button
-            type="button"
-            onClick={() => switchChain({ chainId: base.id })}
-            className="rounded-full bg-rose/20 px-3 py-1.5 text-xs text-rose"
-          >
-            switch to base
+          <button type="button" onClick={() => switchChain({ chainId: base.id })} className="btn btn-danger">
+            Switch to Base
           </button>
         ) : null}
         <button
           type="button"
           onClick={() => disconnect()}
-          className="hairline rounded-full bg-white/5 px-3 py-1.5 font-mono text-[11px] tracking-wide text-ink/90"
+          title="Disconnect"
+          className="btn gap-2 font-mono text-[12px]"
         >
+          <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-[var(--good)]" />
           {shortAddr(address)}
         </button>
       </div>
@@ -39,9 +37,9 @@ export function Connect() {
       type="button"
       disabled={!injected || isPending}
       onClick={() => injected && connect({ connector: injected })}
-      className="btn-cream rounded-full px-4 py-1.5 text-[13px] font-medium"
+      className="btn btn-primary"
     >
-      {isPending ? "waiting…" : "connect"}
+      {isPending ? "Waiting for wallet…" : "Connect wallet"}
     </button>
   );
 }

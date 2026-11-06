@@ -8,10 +8,12 @@
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",
-    "e2e": "node e2e/follow.e2e.mjs"
+    "e2e": "node e2e/follow.e2e.mjs",
+    "evidence": "node e2e/export-evidence.mjs"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.104.2",
+    "lightweight-charts": "5.2.1",
     "next": "16.4.5",
     "react": "19.3.0",
     "react-dom": "19.3.0",

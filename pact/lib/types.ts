@@ -129,6 +129,11 @@ export type Policy = {
   maxOpenPlansPerLeader: number;
   /** Maximum tolerated drift from a leader's published reference entry. */
   maxEntryDrift: string;
+  /**
+   * Maximum estimated execution cost (Flash platform + network + integrator fees) as a fraction
+   * of order size. Kept apart from entry drift: the limit price bounds market price, not fees.
+   */
+  maxExecutionCost?: string;
   /** Require a leader to publish an exit/invalidation before this follower can copy. */
   requirePlanProtection?: boolean;
   /** Require a valid entry, stop, target, and reward:risk before copying. */
@@ -141,6 +146,11 @@ export type Policy = {
   automationMode?: AutomationMode;
   /** Explicitly selected leaders this follower copies. */
   follows?: `0x${string}`[];
+  /**
+   * Selected leaders whose new plans are held (WAIT) without dropping the leader or mandate.
+   * Pausing never cancels orders already live on Flash; only the follower's signature can.
+   */
+  pausedLeaders?: `0x${string}`[];
   /** Optional leader-specific overrides. A missing mandate falls back to the global policy. */
   mandates?: LeaderMandate[];
 };
@@ -218,10 +228,41 @@ export type Receipt = {
   declaredEntryPrice?: string;
   averageFillPrice?: string;
   entryDriftBps?: number;
+  /** Quoted all-in price per target unit, fees included. */
+  allInPrice?: string;
+  /** Quoted estimated fees in USD and as a fraction of size. */
+  quotedFeeUsd?: string;
+  quotedCostRatio?: string;
+  /** Actual fees summed over finalised fills, in USD. */
+  feesUsd?: number;
+  /** Fills Flash reports as finalised vs not yet final (reorg-safe counting). */
+  finalFillCount?: number;
+  pendingFillCount?: number;
+  /** The attached protection pair, as Flash reports it, compared with what the follower chose. */
+  protection?: Protection;
   /** Realized P&L from a completed PACT position when an evidence source supplies it. */
   realizedPnlUsd?: number;
   notionalUsd: number;
   createdAt: string;
+};
+
+export type Protection = {
+  /** pending_activation → active (on first fill) | never_activated (entry closed unfilled). */
+  status?: "pending_activation" | "never_activated" | "active";
+  /** The protective order's own Flash id, set once active. */
+  bracketOrderId?: string;
+  /** Flash status of the protective order itself. */
+  orderStatus?: string;
+  closeReason?: string;
+  /** Levels the follower chose at review. */
+  intendedTakeProfit?: string;
+  intendedStopLoss?: string;
+  /** Levels Flash reports on the live pair (read back after submit). */
+  takeProfit?: string;
+  stopLoss?: string;
+  /** True when Flash's reported levels equal the chosen ones; false is a visible mismatch. */
+  levelsMatch?: boolean;
+  expiresAt?: string;
 };
 
 export type StoredQuote = {
@@ -238,6 +279,15 @@ export type StoredQuote = {
   declaredLimitNotionalPrice?: string;
   /** Price bound actually quoted to Flash after applying follower entry-drift policy. */
   effectiveLimitNotionalPrice?: string;
+  /** Which price basis the bound was sent in (limit + bracket requires the pair rate). */
+  limitBasis?: "notional" | "cross";
+  /** Protections sent on the quote, echoed on submit so Flash does not substitute defaults. */
+  maxPriceImpact?: string;
+  maxSlippage?: string;
+  /** All-in price, estimated fees and cost ratio from the quote. */
+  allInPrice?: string;
+  feeNotional?: string;
+  costRatio?: string;
   attachedBracket?: {
     bracket: AttachedBracket;
     salt?: string;

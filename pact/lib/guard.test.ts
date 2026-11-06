@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { CHAINS, FLASH_SPENDER, PERMIT2 } from "./chains";
-import { verifySigning, type GuardInput } from "./guard";
+import { bracketPriceFloor, verifyBracketSigning, verifySigning, type GuardInput } from "./guard";
 
 const FOLLOWER = "0x2222222222222222222222222222222222222222";
 const NOW = 1_800_000_000;
@@ -199,5 +199,62 @@ describe("verifySigning", () => {
 
   it("fails closed when there is no order payload", () => {
     expect(verifySigning(input({ orderTypedData: undefined })).ok).toBe(false);
+  });
+});
+
+describe("vault and direct approvals", () => {
+  const VAULT = "0x1074393effFCf1A15e306cD3931F48eDA9ABcd55";
+  it("fails when a pinned vault does not match, and only warns when none is pinned", () => {
+    const pinned = verifySigning({ ...input({ orderTypedData: order({ vault: "0x000000000000000000000000000000000000dEaD" }) }), expectedVault: VAULT });
+    expect(failing(pinned)).toContain("order.vault");
+    const ok = verifySigning({ ...input({ orderTypedData: order({ vault: VAULT }) }), expectedVault: VAULT });
+    expect(ok.checks.find((c) => c.id === "order.vault")?.level).toBe("pass");
+    expect(verifySigning(input()).checks.find((c) => c.id === "order.vault")?.level).toBe("warn");
+  });
+
+  it("accepts a bounded direct approval to Flash, rejects an oversized one", () => {
+    const bounded = (25_000_000).toString(16).padStart(64, "0");
+    const good = verifySigning(input({ permitTypedData: undefined, approveTx: approve(FLASH_SPENDER, bounded) }));
+    expect(good.ok).toBe(true);
+    const tooMuch = verifySigning(input({ permitTypedData: undefined, approveTx: approve(FLASH_SPENDER) }));
+    expect(failing(tooMuch)).toContain("approve.amount");
+    const elsewhere = verifySigning(input({ approveTx: approve("0x000000000000000000000000000000000000bEEF") }));
+    expect(failing(elsewhere)).toContain("approve.shape");
+  });
+});
+
+describe("verifyBracketSigning (protection pair)", () => {
+  // $20 entry, stop at 2450 → cap = 2.2 × 20 / 2450 WETH ≈ 0.01796 WETH.
+  const bracketOrder = (over: Record<string, unknown> = {}) => order({ fromToken: weth, toToken: usdc, fromAmount: "17880388771568224", deadline: String(NOW + 86_400), ...over });
+  const bracketPermit = (details: Record<string, unknown> = {}) => permit({}, { token: weth, amount: "17880388771568224", expiration: String(NOW + 86_400), ...details });
+  const bracketInput = (quote: Record<string, unknown> = {}) => ({
+    chain: "base" as const,
+    follower: FOLLOWER,
+    targetAsset: weth,
+    contraAsset: usdc,
+    entryQty: "20",
+    priceFloor: bracketPriceFloor({ stopLossPrice: "2450", entryReferencePrice: "2500" }),
+    signedMaxFromAmount: "0.017880388771568224",
+    nowSec: NOW,
+    quote: { orderTypedData: bracketOrder(), permitTypedData: bracketPermit(), approveTx: { ...approve(), to: weth }, ...quote },
+  });
+
+  it("passes Flash's real protection payload shape", () => {
+    const r = verifyBracketSigning(bracketInput());
+    expect(r.ok).toBe(true);
+    expect(r.checks.find((c) => c.id === "bracket.order.quoted")?.level).toBe("pass");
+  });
+
+  it("fails if protection proceeds go elsewhere, tokens flip, or size exceeds the bound", () => {
+    expect(failing(verifyBracketSigning(bracketInput({ orderTypedData: bracketOrder({ recipient: "0x000000000000000000000000000000000000bEEF" }) })))).toContain("bracket.order.recipient");
+    expect(failing(verifyBracketSigning(bracketInput({ orderTypedData: bracketOrder({ fromToken: usdc, toToken: weth }) })))).toContain("bracket.order.tokens");
+    expect(failing(verifyBracketSigning(bracketInput({ orderTypedData: bracketOrder({ fromAmount: "900000000000000000" }) })))).toContain("bracket.order.amount");
+    expect(failing(verifyBracketSigning(bracketInput({ permitTypedData: permit({ spender: "0x000000000000000000000000000000000000bEEF" }, { token: weth }) })))).toContain("bracket.permit.spender");
+  });
+
+  it("only warns when the protection permit covers more than PACT can see", () => {
+    const r = verifyBracketSigning(bracketInput({ permitTypedData: bracketPermit({ amount: "90000000000000000" }) }));
+    expect(r.ok).toBe(true);
+    expect(r.checks.find((c) => c.id === "bracket.permit.amount")?.level).toBe("warn");
   });
 });

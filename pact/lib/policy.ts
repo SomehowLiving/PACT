@@ -32,8 +32,14 @@ export type RiskContext = {
 
 export type ExecutionMetrics = {
   estimatedPriceImpact?: string;
+  /** Market price of the target asset on the quote (what Flash's limit price bounds). */
   executionPrice?: string;
+  /** Estimated fees as a fraction of order size. */
+  costRatio?: string;
 };
+
+/** Default execution-cost budget when a policy predates the field. Flash itself refuses above 30%. */
+export const DEFAULT_MAX_EXECUTION_COST = "0.03";
 
 export type StopRiskSizing = {
   notionalUsd: number;
@@ -99,6 +105,22 @@ export function stopRiskSizing(
     return undefined;
   }
   return { notionalUsd, qty, riskPerUnitUsd, estimatedLossAtStopUsd: riskBudgetUsd };
+}
+
+export function isLeaderPaused(policy: Pick<Policy, "pausedLeaders">, leader: string) {
+  return !!policy.pausedLeaders?.some((paused) => paused.toLowerCase() === leader.toLowerCase());
+}
+
+/**
+ * A follower pause holds every new plan from that leader. It is a WAIT, not a DECLINE:
+ * resuming re-decides the held plans against the follower's current policy.
+ */
+export function leaderPauseDecision(
+  policy: Pick<Policy, "pausedLeaders">,
+  leader: string,
+): Decision | undefined {
+  if (!isLeaderPaused(policy, leader)) return undefined;
+  return { verdict: "BLOCK", action: "WAIT", reasons: ["LEADER_PAUSED"] };
 }
 
 type LeaderPlanInput = {
@@ -301,7 +323,7 @@ export function decide(
 
 export function decideExecution(
   proposal: Pick<Proposal, "entryReferencePrice">,
-  policy: Pick<Policy, "maxPriceImpact" | "maxEntryDrift">,
+  policy: Pick<Policy, "maxPriceImpact" | "maxEntryDrift" | "maxExecutionCost">,
   metrics: ExecutionMetrics,
 ): Decision | undefined {
   const impact = n(metrics.estimatedPriceImpact);
@@ -321,6 +343,14 @@ export function decideExecution(
     Math.abs(execution / reference - 1) > maxDrift
   ) {
     return { verdict: "BLOCK", action: "WAIT", reasons: ["ENTRY_DRIFT_TOO_HIGH"] };
+  }
+
+  // Fees are a separate cost line: a $5 copy with protection can cost ~4% in fees even when
+  // the market price sits exactly at the leader's entry.
+  const cost = n(metrics.costRatio);
+  const maxCost = n(policy.maxExecutionCost ?? DEFAULT_MAX_EXECUTION_COST);
+  if (cost !== undefined && maxCost !== undefined && cost > maxCost) {
+    return { verdict: "BLOCK", action: "WAIT", reasons: ["EXECUTION_COST_TOO_HIGH"] };
   }
 
   return undefined;

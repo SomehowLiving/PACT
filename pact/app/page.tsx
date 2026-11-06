@@ -1,5 +1,5 @@
-import { Floor } from "@/components/Floor";
+import { Overview } from "@/components/pages/Overview";
 
 export default function Page() {
-  return <Floor />;
+  return <Overview />;
 }

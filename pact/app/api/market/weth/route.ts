@@ -1,10 +1,11 @@
-import { baseWethUsdcMarket } from "@/lib/market";
+import { baseWethUsdcMarket, isTimeframe } from "@/lib/market";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(req: Request) {
+  const tf = new URL(req.url).searchParams.get("tf");
   try {
-    return Response.json(await baseWethUsdcMarket(), {
+    return Response.json(await baseWethUsdcMarket(isTimeframe(tf) ? tf : "5m"), {
       headers: { "cache-control": "public, max-age=60, s-maxage=60" },
     });
   } catch (error) {

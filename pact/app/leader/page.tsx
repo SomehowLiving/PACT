@@ -1,5 +1,5 @@
-import { LeadTicket } from "@/components/LeadTicket";
+import { Publish } from "@/components/pages/Publish";
 
 export default function LeaderPage() {
-  return <LeadTicket />;
+  return <Publish />;
 }

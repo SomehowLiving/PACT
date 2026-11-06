@@ -1,5 +1,5 @@
 import { Providers } from "@/components/Providers";
-import { Shell } from "@/components/Shell";
+import { AppShell } from "@/components/AppShell";
 import type { Metadata } from "next";
 import { IBM_Plex_Mono, Instrument_Serif, Outfit } from "next/font/google";
 import "./globals.css";
@@ -23,7 +23,7 @@ const ibm = IBM_Plex_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "pact — policy-aware copy",
+  title: "PACT — policy-bound strategy execution",
   description:
     "Copy one leader’s Flash TWAP on Base. Follower signs. Policy can still BLOCK.",
   icons: { icon: "/mark.svg" },
@@ -39,7 +39,7 @@ export default function RootLayout({
     >
       <body className="min-h-full">
         <Providers>
-          <Shell>{children}</Shell>
+          <AppShell>{children}</AppShell>
         </Providers>
       </body>
     </html>

@@ -37,6 +37,14 @@ export function assessProposalForAssist(
       reasons: decision.reasons,
     };
   }
+  if (decision.reasons.includes("LEADER_PAUSED")) {
+    return {
+      proposalId: proposal.id,
+      action: "HOLD",
+      headline: "Held; you paused this leader",
+      reasons: decision.reasons,
+    };
+  }
   if (decision.action === "WAIT" || decision.action === "REVIEW") {
     return {
       proposalId: proposal.id,

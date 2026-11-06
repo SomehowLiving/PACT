@@ -30,4 +30,10 @@ describe("PACT Assist", () => {
       }),
     ).toMatchObject({ action: "DECLINE" });
   });
+
+  it("labels a follower pause as the follower's own hold", () => {
+    expect(
+      assessProposalForAssist(proposal, { verdict: "BLOCK", action: "WAIT", reasons: ["LEADER_PAUSED"] }),
+    ).toMatchObject({ action: "HOLD", headline: "Held; you paused this leader" });
+  });
 });

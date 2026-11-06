@@ -1,5 +1,5 @@
-import { fillExecutionMetrics, getOrder } from "@/lib/flash";
-import { patchReceipt, snapshot } from "@/lib/store";
+import { refreshReceipt, stillLive } from "@/lib/receipts";
+import { snapshot } from "@/lib/store";
 
 export const dynamic = "force-dynamic";
 
@@ -12,29 +12,19 @@ export async function GET(
   if (!receipt) {
     return Response.json({ error: "unknown order" }, { status: 404 });
   }
-  try {
-    // Flash requires the funder address to read an order.
-    const detail = await getOrder(id, receipt.follower);
-    const fills = detail.fills ?? [];
-    const tx = fills.find((f) => f.transactionId)?.transactionId;
-    const proposal = snapshot().proposals.find((item) => item.id === receipt.proposalId);
-    const fidelity = fillExecutionMetrics(fills, proposal?.side ?? "buy", receipt.declaredEntryPrice);
-    patchReceipt(receipt.proposalId, {
-      status: detail.order.status,
-      closeReason: detail.order.closeReason ?? undefined,
-      transactionId: tx,
-      fills,
-      // A TWAP produces one fill per slice, so slices done = fills so far.
-      completedFillCount: fills.length,
-      twapBucketCount: detail.order.twapBucketCount ?? undefined,
-      averageFillPrice: fidelity.averageFillPrice,
-      entryDriftBps: fidelity.entryDriftBps,
+  const result = await refreshReceipt(receipt);
+  if (result.ok) {
+    return Response.json({
+      order: result.detail.order,
+      fills: result.detail.fills,
+      protectionOrder: result.protectionOrder,
+      receipt: result.receipt,
+      live: stillLive(result.receipt),
     });
-    return Response.json({ order: detail.order, fills, transactionId: tx });
-  } catch (e) {
-    return Response.json(
-      { error: e instanceof Error ? e.message : "get order failed" },
-      { status: 502 },
-    );
   }
+  if (result.pending) {
+    // Flash returns 404 for a few seconds after submit; that is "not yet", not a failure.
+    return Response.json({ pending: true, receipt: result.receipt, live: true }, { status: 202 });
+  }
+  return Response.json({ error: result.error, receipt: result.receipt, live: stillLive(result.receipt) }, { status: 502 });
 }

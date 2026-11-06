@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { executionMetrics, fillExecutionMetrics, getOrder, postCancel, quoteRequest } from "./flash";
-import { cancelMessage } from "./typed";
+import { executionMetrics, fillExecutionMetrics, getOrder, postBatchCancel, postCancel, quoteRequest } from "./flash";
+import { batchCancelMessage, cancelMessage, parseOrderTypedData } from "./typed";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -139,30 +139,122 @@ describe("flash contracts", () => {
     });
   });
 
-  it("extracts a quote's actual impact and execution price for the follower gate", () => {
-    expect(
-      executionMetrics(
-        {
-          quoteId: "q1",
-          estimatedPriceImpact: "0.0042",
-          from: { amount: "25", notional: "25", symbol: "USDC" },
-          to: { amount: "0.01", notional: "25", symbol: "WETH" },
-        },
-        "buy",
-      ),
-    ).toEqual({ estimatedPriceImpact: "0.0042", executionPrice: "2500" });
+  it("keeps market price (for drift) apart from all-in price and fee cost", () => {
+    const quote = {
+      quoteId: "q1",
+      estimatedPriceImpact: "0.0042",
+      from: { amount: "20", notional: "20", symbol: "USDC" },
+      to: { amount: "0.0078", notional: "19.5", symbol: "WETH" },
+      fees: { estimatedFeeNotional: "0.36" },
+    };
+    const m = executionMetrics(quote, "buy");
+    expect(Number(m.executionPrice)).toBeCloseTo(19.5 / 0.0078, 6); // market mark, what the limit bounds
+    expect(Number(m.allInPrice)).toBeCloseTo(20 / 0.0078, 6); // USD spent ÷ WETH received
+    expect(Number(m.costRatio)).toBeCloseTo(0.018, 6); // 0.36 / 20
+    expect(m.feeNotional).toBe("0.36");
+
+    const sell = executionMetrics(
+      {
+        quoteId: "q2",
+        from: { amount: "0.01", notional: "22.5", symbol: "WETH" },
+        to: { amount: "22.4", notional: "22.4", symbol: "USDC" },
+        fees: { estimatedFeeNotional: "0.4" },
+      },
+      "sell",
+    );
+    expect(Number(sell.allInPrice)).toBeCloseTo((22.4 - 0.4) / 0.01, 6); // integrator fee not taken out of `to` on sells
   });
 
-  it("derives follower fill fidelity without claiming PnL", () => {
-    expect(
-      fillExecutionMetrics(
-        [
-          { fillPrice: "2505", notional: "25" },
-          { fillPrice: "2515", notional: "75" },
+  it("prices fills from Flash's amounts, never from the inverted sell fillPrice", () => {
+    const buy = fillExecutionMetrics(
+      {
+        fills: [
+          { status: "CHAIN_STATUS_FINALIZED", fillPrice: "2505", targetAmount: "0.002", contraAmount: "5.01", feeNotional: "0.03" },
+          { status: "CHAIN_STATUS_FINALIZED", fillPrice: "2515", targetAmount: "0.006", contraAmount: "15.09", feeNotional: "0.05" },
         ],
-        "buy",
-        "2500",
-      ),
-    ).toEqual({ averageFillPrice: "2512.5", entryDriftBps: 50 });
+      },
+      "buy",
+      "2500",
+    );
+    expect(Number(buy.averageFillPrice)).toBeCloseTo(20.1 / 0.008, 6);
+    expect(buy.entryDriftBps).toBeCloseTo(((20.1 / 0.008 - 2500) / 2500) * 10_000, 6);
+    expect(buy.feesUsd).toBeCloseTo(0.08, 9);
+
+    // A real WETH sell: fillPrice is USDC-per-... inverted (~0.00045). Flash's own average wins.
+    const sell = fillExecutionMetrics(
+      {
+        filled: { averageNotionalPrice: "2226.66" },
+        fills: [{ status: "CHAIN_STATUS_FINALIZED", fillPrice: "0.00045037", targetAmount: "0.01", contraAmount: "22.2666" }],
+      },
+      "sell",
+      "2200",
+    );
+    expect(sell.averageFillPrice).toBe("2226.66");
+    expect(sell.entryDriftBps).toBeLessThan(0); // sold above entry: better for the follower
+
+    const mixed = fillExecutionMetrics(
+      {
+        fills: [
+          { status: "CHAIN_STATUS_FINALIZED", targetAmount: "0.004", contraAmount: "10" },
+          { status: "CHAIN_STATUS_REORGED", targetAmount: "1", contraAmount: "1" },
+          { status: "CHAIN_STATUS_PROCESSED", targetAmount: "0.004", contraAmount: "10" },
+        ],
+      },
+      "buy",
+    );
+    expect(mixed).toMatchObject({ averageFillPrice: "2500", finalFillCount: 1, pendingFillCount: 1 });
+  });
+
+  it("uses the pair rate for a limit entry with protection, and keeps copies inside the plan window", () => {
+    const now = Date.parse("2026-11-06T12:00:00Z");
+    const planEnd = "2026-11-06T16:00:00Z";
+    const bracket = { takeProfit: { notionalPrice: "2600" }, stopLoss: { notionalPrice: "2450" }, expireTime: "2026-11-06T14:00:00Z" };
+    const limit = quoteRequest({
+      targetAsset: "0xT", contraAsset: "0xC", side: "buy", qty: "20", orderType: "limit", funderAddress: "0xF",
+      limitNotionalPrice: "2525", attachedBracket: bracket, planExpiresAt: planEnd, nowMs: now,
+    });
+    expect(limit.limitCrossPrice).toBe("2525");
+    expect(limit.limitNotionalPrice).toBeUndefined();
+    expect(limit.expireTime).toBe(new Date(planEnd).toISOString()); // not 7 days
+    expect(limit.attachedBracket?.expireTime).toBe(limit.expireTime); // protection never ends first
+
+    const plain = quoteRequest({
+      targetAsset: "0xT", contraAsset: "0xC", side: "buy", qty: "20", orderType: "limit", funderAddress: "0xF",
+      limitNotionalPrice: "2525", planExpiresAt: planEnd, nowMs: now,
+    });
+    expect(plain.limitNotionalPrice).toBe("2525");
+    expect(plain.limitCrossPrice).toBeUndefined();
+
+    const twap = quoteRequest({
+      targetAsset: "0xT", contraAsset: "0xC", side: "buy", qty: "20", orderType: "twap", funderAddress: "0xF",
+      durationSeconds: 86_400, planExpiresAt: "2026-11-06T12:30:00Z", nowMs: now,
+    });
+    expect(twap.durationSeconds).toBe(1_800); // capped to the 30 minutes left in the plan
+    expect(() =>
+      quoteRequest({
+        targetAsset: "0xT", contraAsset: "0xC", side: "buy", qty: "20", orderType: "twap", funderAddress: "0xF",
+        planExpiresAt: "2026-11-06T12:02:00Z", nowMs: now,
+      }),
+    ).toThrow(/plan window/);
+  });
+
+  it("cancels entry and protection together, and reports already-filled instead of failing", async () => {
+    expect(batchCancelMessage(["AAA", "bbb"])).toBe("Definitive Flash v1 — Cancel Orders\nOrders:\naaa\nbbb");
+    const fn = stubFetch({ results: [{ orderId: "aaa", ok: true }, { orderId: "bbb", ok: false, errorCode: "PENDING_CANCEL" }] });
+    const out = await postBatchCancel(["aaa", "bbb"], "0xsig");
+    const init = (fn.mock.calls[0] as unknown as [string, RequestInit])[1];
+    expect(JSON.parse(String(init.body))).toMatchObject({ orderIds: ["aaa", "bbb"], cancelMessage: batchCancelMessage(["aaa", "bbb"]) });
+    expect(out.map((r) => r.ok)).toEqual([true, true]);
+
+    stubFetch({ error: { code: "FAILED_PRECONDITION", message: "order already filled" } }, 422);
+    await expect(postCancel("ccc", "0xsig")).resolves.toMatchObject({ ok: false, alreadyFilled: true });
+  });
+
+  it("signs with a numeric chainId so viem hashes the domain Flash expects", () => {
+    const parsed = parseOrderTypedData(
+      JSON.stringify({ domain: { name: "DefinitiveFlashAllowance", version: "1", chainId: "8453", verifyingContract: "0x5d" }, types: { EIP712Domain: [], FlashOrder: [] }, primaryType: "FlashOrder", message: {} }),
+    );
+    expect(parsed.domain.chainId).toBe(8453);
+    expect(parsed.types.EIP712Domain).toBeUndefined();
   });
 });

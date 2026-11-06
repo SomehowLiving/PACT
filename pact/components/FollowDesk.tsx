@@ -3,12 +3,17 @@
 import { Gauge } from "@/components/Gauge";
 import { CopyActionPill } from "@/components/CopyActionPill";
 import { ExecutionLevels } from "@/components/ExecutionLevels";
-import { MarketChart } from "@/components/MarketChart";
+import { LeaderPanel } from "@/components/LeaderPanel";
+import { TradingChart } from "@/components/TradingChart";
+import { useDeskContext } from "@/components/DeskContext";
+import { ActionBadge, Addr, AddrAvatar, KV, LayerTag, Panel, StatusBadge } from "@/components/ui";
+import { effectiveLimitNotionalPrice } from "@/lib/policy";
 import { useDesk } from "@/components/useDesk";
 import { defaultPolicy, WETH } from "@/lib/constants";
 import { CHAINS, CHAIN_IDS } from "@/lib/chains";
-import { verifySigning, type GuardResult } from "@/lib/guard";
-import { cancelMessage, parseOrderTypedData } from "@/lib/typed";
+import { bracketPriceFloor, verifyBracketSigning, verifySigning, type GuardResult } from "@/lib/guard";
+import { batchCancelMessage, cancelMessage, parseOrderTypedData } from "@/lib/typed";
+import { protectionCancellable, stillLive } from "@/lib/views";
 import { reasonLabel, shortAddr, usd } from "@/lib/format";
 import Link from "next/link";
 import type {
@@ -209,6 +214,9 @@ export function FollowDesk({ reviewProposalId }: { reviewProposalId?: string }) 
           </p>
         </div>
         {isConnected && address ? (
+          <LeaderPanel policy={policy} state={state ?? undefined} onSaved={refresh} />
+        ) : null}
+        {isConnected && address ? (
           <AssistPanel policy={policy} onSaved={refresh} />
         ) : null}
         {isConnected && address ? (
@@ -267,7 +275,7 @@ export function FollowDesk({ reviewProposalId }: { reviewProposalId?: string }) 
   );
 }
 
-function ReviewWorkspace({
+export function ReviewWorkspace({
   proposal,
   decision,
   receipt,
@@ -278,105 +286,250 @@ function ReviewWorkspace({
   receipt?: CardReceipt;
   onDone: () => Promise<void>;
 }) {
+  const { state } = useDeskContext();
   const supportsLiveMarket =
     proposal.chain === "base" && proposal.targetAsset.toLowerCase() === WETH.toLowerCase();
   const expiresAt = new Date(proposal.expiresAt);
+  const strategy = state?.strategies.find((s) => s.id === proposal.strategyId);
+  const followerPolicy = state?.policies.find(
+    (p) => p.follower.toLowerCase() === proposal.follower.toLowerCase(),
+  );
+  const bound = followerPolicy ? effectiveLimitNotionalPrice(proposal, followerPolicy) : undefined;
+  const boundsEntry = proposal.orderType === "twap" || proposal.orderType === "limit";
+  const approvedQty = decision?.modifiedQty ?? proposal.qty;
+  const blocked = !decision || decision.verdict === "BLOCK";
+  const bracket =
+    proposal.followerExitMode === "FOLLOWER_BRACKET" &&
+    proposal.side === "buy" &&
+    !!proposal.stopLossPrice &&
+    !!proposal.takeProfitPrice &&
+    !!proposal.protectionExpiresAt;
+  const price = (v?: string) => (v ? `$${Number(v).toLocaleString("en-US", { maximumFractionDigits: 2 })}` : "not declared");
+  const leaderSize = strategy
+    ? strategy.side === "buy"
+      ? usd(Number(strategy.qty))
+      : `${strategy.qty} units`
+    : "—";
+  const sizing =
+    proposal.copySizingMode === "STOP_RISK"
+      ? `stop-risk · ${usd(proposal.riskBudgetUsd ?? 0)} at stop`
+      : proposal.copySizingMode === "FIXED"
+        ? "fixed USD"
+        : "proportional";
+  const rows: { k: string; leader: string; yours: string; changed?: boolean }[] = [
+    {
+      k: "Order",
+      leader: `${proposal.orderType} ${proposal.side} · ${proposal.chain}`,
+      yours: `${proposal.orderType} ${proposal.side} · ${proposal.chain}${proposal.durationSeconds ? ` · ${Math.round(proposal.durationSeconds / 60)}m` : ""}${proposal.twapBucketCount ? ` · ${proposal.twapBucketCount} buckets` : ""}`,
+    },
+    {
+      k: "Size",
+      leader: leaderSize,
+      yours: blocked ? "not approved" : `${usd(proposal.notionalUsd)} · qty ${approvedQty}`,
+      changed: !blocked && decision?.verdict === "MODIFY",
+    },
+    { k: "Sizing", leader: "leader's own size", yours: sizing },
+    {
+      k: "Entry",
+      leader: price(proposal.entryReferencePrice),
+      yours: boundsEntry
+        ? bound
+          ? `Flash bound ${proposal.side === "buy" ? "≤" : "≥"} ${price(bound)}`
+          : "no bound (no declared entry)"
+        : proposal.maxSlippage
+          ? `market · slippage ≤ ${(Number(proposal.maxSlippage) * 100).toFixed(2)}%`
+          : "market",
+      changed: boundsEntry && !!bound,
+    },
+    {
+      k: "Stop / target",
+      leader: `${price(proposal.stopLossPrice)} / ${price(proposal.takeProfitPrice)}`,
+      yours: bracket ? "Flash TP/SL bracket at declared levels" : "manual exit",
+    },
+    {
+      k: "Window",
+      leader: Number.isFinite(expiresAt.valueOf()) ? `entry until ${expiresAt.toLocaleString()}` : "invalid",
+      yours: proposal.protectionExpiresAt && bracket
+        ? `protection until ${new Date(proposal.protectionExpiresAt).toLocaleString()}`
+        : "same entry window",
+    },
+  ];
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-end justify-between gap-3 border-b border-line pb-4">
-        <div>
-          <div className="terminal-kicker">copy review</div>
-          <h1 className="mt-1 text-2xl font-semibold tracking-tight">{proposal.title}</h1>
-          <p className="mt-1 text-sm text-mute">
-            Review the leader declaration, market context, and your exact execution authority
-            before requesting a Flash quote.
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div className="min-w-0">
+          <nav className="label flex items-center gap-1.5" aria-label="Breadcrumb">
+            <Link href="/proposals" className="hover:text-ink">
+              Proposals
+            </Link>
+            <span aria-hidden>/</span>
+            <span className="text-ink/80">Review</span>
+          </nav>
+          <div className="mt-1 flex flex-wrap items-center gap-2.5">
+            <h1 className="text-[22px] font-semibold tracking-tight text-ink">{proposal.title}</h1>
+            {decision ? <ActionBadge action={decision.action} verdict={decision.verdict} /> : null}
+          </div>
+          <p className="mt-1 flex flex-wrap items-center gap-2 text-[12.5px] text-mute">
+            <AddrAvatar value={proposal.leader} size={18} />
+            leader <Addr value={proposal.leader} className="text-ink" />
+            <span aria-hidden>·</span> follower <Addr value={proposal.follower} className="text-ink" />
           </p>
         </div>
-        <Link
-          href="/follower"
-          className="border border-line px-3 py-2 font-mono text-[10px] uppercase tracking-[0.08em] text-mute transition hover:border-gold hover:text-gold"
-        >
-          back to mandates
-        </Link>
+        <ol className="flex flex-wrap items-center gap-1.5 text-[11.5px] text-mute" aria-label="Review steps">
+          {["Plan vs your order", "Policy checks", "Flash quote", "Wallet signing"].map((step, i) => (
+            <li key={step} className="flex items-center gap-1.5">
+              <span className="flex h-5 w-5 items-center justify-center rounded-full border border-line font-mono text-[10px] text-ink">{i + 1}</span>
+              {step}
+              {i < 3 ? <span aria-hidden className="text-line">—</span> : null}
+            </li>
+          ))}
+        </ol>
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-[0.82fr_1.55fr_0.92fr]">
-        <aside className="terminal-panel p-4">
-          <div className="terminal-kicker">leader declaration</div>
-          <div className="mt-3 flex flex-wrap items-center gap-2">
-            <span className="font-mono text-xs uppercase text-ink">
-              {proposal.orderType} {proposal.side}
-            </span>
-            <span className="border border-line px-2 py-0.5 font-mono text-[10px] uppercase text-mute">
-              {proposal.chain}
-            </span>
-            {decision ? <CopyActionPill action={decision.action} verdict={decision.verdict} /> : null}
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(340px,1fr)]">
+        <Panel
+          title="Leader's plan vs your order"
+          subtitle="What the leader declared, and what your mandate turns it into"
+          layer="policy"
+        >
+          <div className="overflow-x-auto">
+            <table className="tbl">
+              <thead>
+                <tr>
+                  <th className="w-[110px]">Field</th>
+                  <th>Leader declared</th>
+                  <th>Your order</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r) => (
+                  <tr key={r.k}>
+                    <td className="text-mute">{r.k}</td>
+                    <td className="text-ink/90">{r.leader}</td>
+                    <td className={r.changed ? "text-warn" : "text-ink"}>
+                      {r.yours}
+                      {r.changed ? <span className="ml-1.5 font-mono text-[9.5px] uppercase text-mute">adjusted</span> : null}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-          <p className="mt-4 text-sm leading-relaxed text-ink/90">{proposal.thesis}</p>
-          <dl className="mt-5 space-y-0 border-y border-line text-xs">
-            <ReviewRow k="leader" v={shortAddr(proposal.leader)} />
-            <ReviewRow
-              k="entry window"
-              v={Number.isFinite(expiresAt.valueOf()) ? expiresAt.toLocaleString() : "invalid"}
-            />
-            <ReviewRow k="plan grade" v={proposal.leaderPlanGrade.toLowerCase()} />
-            <ReviewRow
-              k="execution evidence"
-              v={proposal.leaderEvidenceStatus.toLowerCase()}
-            />
-            <ReviewRow
-              k="invalidation"
-              v={proposal.invalidation?.trim() || "not declared"}
-              wrap
-            />
-          </dl>
-          {proposal.leaderPlanReasons.length ? (
-            <div className="mt-3 flex flex-wrap gap-1.5">
-              {proposal.leaderPlanReasons.map((reason) => (
-                <span key={reason} className="border border-rose/40 px-2 py-1 font-mono text-[10px] text-rose">
-                  {reasonLabel(reason)}
+        </Panel>
+
+        <Panel title="Policy checks" subtitle="Your mandate's decision for this plan" layer="policy" bodyClassName="px-4 py-3">
+          {decision ? (
+            <>
+              <div className="flex items-center gap-2">
+                <ActionBadge action={decision.action} verdict={decision.verdict} />
+                <span className="text-[12.5px] text-ink">
+                  {decision.verdict === "ALLOW"
+                    ? "Fits every limit in your mandate."
+                    : decision.verdict === "MODIFY"
+                      ? "Allowed after scaling to your cap."
+                      : decision.action === "WAIT"
+                        ? "Held. Not executable right now."
+                        : decision.action === "REVIEW"
+                          ? "Needs your review before it can proceed."
+                          : "Refused by your mandate."}
                 </span>
-              ))}
+              </div>
+              {decision.reasons.length ? (
+                <ul className="mt-3 space-y-1.5">
+                  {decision.reasons.map((reason) => (
+                    <li key={reason} className="flex items-center gap-2 text-[12px]">
+                      <span aria-hidden className={decision.verdict === "BLOCK" ? "text-bad" : "text-warn"}>
+                        {decision.verdict === "BLOCK" ? "✕" : "!"}
+                      </span>
+                      <span className="font-mono text-ink/90">{reasonLabel(reason)}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="mt-3 text-[12px] text-mute">No limits were hit.</p>
+              )}
+            </>
+          ) : (
+            <p className="text-[12px] text-mute">No policy decision recorded for this proposal.</p>
+          )}
+          {proposal.leaderPlanReasons.length ? (
+            <div className="mt-4 border-t border-line-2 pt-3">
+              <div className="label">Plan quality notes</div>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {proposal.leaderPlanReasons.map((reason) => (
+                  <StatusBadge key={reason} tone="warn" icon="!">
+                    {reasonLabel(reason)}
+                  </StatusBadge>
+                ))}
+              </div>
             </div>
           ) : null}
-        </aside>
+        </Panel>
+      </div>
 
-        <section className="terminal-panel overflow-hidden">
-          {supportsLiveMarket ? (
-            <>
-              <MarketChart
-                entry={proposal.entryReferencePrice}
-                stop={proposal.stopLossPrice}
-                target={proposal.takeProfitPrice}
-              />
-              <div className="border-t border-line">
-                <ExecutionLevels
-                  side={proposal.side}
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(340px,1fr)]">
+        <div className="min-w-0 space-y-4">
+          <Panel className="overflow-hidden">
+            {supportsLiveMarket ? (
+              <>
+                <TradingChart
                   entry={proposal.entryReferencePrice}
                   stop={proposal.stopLossPrice}
                   target={proposal.takeProfitPrice}
+                  bound={boundsEntry ? bound : undefined}
                 />
+                <div className="border-t border-line">
+                  <ExecutionLevels
+                    side={proposal.side}
+                    entry={proposal.entryReferencePrice}
+                    stop={proposal.stopLossPrice}
+                    target={proposal.takeProfitPrice}
+                  />
+                </div>
+              </>
+            ) : (
+              <div className="p-5">
+                <div className="flex items-center gap-2">
+                  <span className="panel-title">Market context unavailable</span>
+                  <LayerTag layer="market" />
+                </div>
+                <p className="mt-2 text-[12.5px] leading-relaxed text-mute">
+                  PACT currently renders a real DEX chart only for Base WETH/USDC. This proposal
+                  can still be policy-reviewed, but it does not get a substituted or generated chart.
+                </p>
               </div>
-            </>
-          ) : (
-            <div className="p-5">
-              <div className="terminal-kicker">market context unavailable</div>
-              <p className="mt-2 text-sm leading-relaxed text-mute">
-                PACT currently renders a real DEX chart only for Base WETH/USDC. This proposal
-                can still be policy-reviewed, but it does not get a substituted or generated chart.
-              </p>
-            </div>
-          )}
-        </section>
+            )}
+          </Panel>
 
-        <ProposalCard
-          proposal={proposal}
-          decision={decision}
-          receipt={receipt}
-          onDone={onDone}
-          reviewMode
-        />
+          <Panel title="Leader declaration" subtitle="A plan claim, not execution truth" bodyClassName="px-4 py-3">
+            <p className="text-[13px] leading-relaxed text-ink/90">{proposal.thesis || "No thesis declared."}</p>
+            <dl className="mt-3">
+              <KV k="Leader" v={<Addr value={proposal.leader} />} />
+              <KV k="Entry window" v={Number.isFinite(expiresAt.valueOf()) ? expiresAt.toLocaleString() : "invalid"} />
+              <KV k="Plan grade" v={proposal.leaderPlanGrade.toLowerCase()} />
+              <KV
+                k="Execution evidence"
+                v={
+                  proposal.leaderEvidenceStatus === "ORDER_FOUND"
+                    ? "order found under leader wallet"
+                    : "unverified"
+                }
+              />
+              <KV k="Invalidation" v={proposal.invalidation?.trim() || "not declared"} wrap />
+            </dl>
+          </Panel>
+        </div>
+
+        <div className="min-w-0">
+          <ProposalCard
+            proposal={proposal}
+            decision={decision}
+            receipt={receipt}
+            onDone={onDone}
+            reviewMode
+          />
+        </div>
       </div>
     </div>
   );
@@ -411,7 +564,7 @@ type AssistResponse = {
   constraints: string[];
 };
 
-function AssistPanel({ policy, onSaved }: { policy: Policy; onSaved: () => Promise<void> }) {
+export function AssistPanel({ policy, onSaved }: { policy: Policy; onSaved: () => Promise<void> }) {
   const follower = policy.follower;
   const mode = policy.automationMode ?? "REVIEW";
   const [result, setResult] = useState<AssistResponse | null>(null);
@@ -535,12 +688,6 @@ const IDLE: Record<StepId, StepState> = {
   bracket: "idle",
   submit: "idle",
 };
-const TERMINAL = [
-  "ORDER_STATUS_FILLED",
-  "ORDER_STATUS_CANCELLED",
-  "ORDER_STATUS_REJECTED",
-  "ORDER_STATUS_TERMINATED",
-];
 const CANCELLABLE = [
   "ORDER_STATUS_PENDING",
   "ORDER_STATUS_ACCEPTED",
@@ -548,6 +695,16 @@ const CANCELLABLE = [
 ];
 
 type CardReceipt = {
+  protection?: {
+    status?: string;
+    bracketOrderId?: string;
+    orderStatus?: string;
+    levelsMatch?: boolean;
+    takeProfit?: string;
+    stopLoss?: string;
+    intendedTakeProfit?: string;
+    intendedStopLoss?: string;
+  };
   flashOrderId?: string;
   transactionId?: string;
   status?: string;
@@ -561,7 +718,7 @@ type CardReceipt = {
   entryDriftBps?: number;
 };
 
-function ProposalCard({
+export function ProposalCard({
   proposal,
   decision,
   receipt,
@@ -600,11 +757,12 @@ function ProposalCard({
   const canSign = isFollower && !blocked && !busy && !receipt?.flashOrderId;
   const explorer = CHAINS[proposal.chain].explorerTx;
   const orderId = receipt?.flashOrderId;
-  const terminal = Boolean(receipt?.status && TERMINAL.includes(receipt.status));
+  // Keep watching after the entry ends while its protection pair is still pending or live.
+  const watching = Boolean(receipt && stillLive(receipt));
 
-  // Keep the order fresh after submit: Flash order status, TWAP slices, fills.
+  // Keep the order fresh after submit: Flash order status, TWAP slices, fills, protection.
   useEffect(() => {
-    if (!orderId || terminal) return;
+    if (!orderId || !watching) return;
     const tick = () =>
       void fetch(`/api/orders/${orderId}`)
         .then(() => onDone())
@@ -615,7 +773,7 @@ function ProposalCard({
       clearTimeout(first);
       clearInterval(id);
     };
-  }, [orderId, terminal, onDone]);
+  }, [orderId, watching, onDone]);
 
   async function run() {
     if (!canSign || !address) return;
@@ -655,6 +813,7 @@ function ProposalCard({
           orderTypedData?: string;
           permitTypedData?: string;
           approveTx?: { to: `0x${string}`; data: `0x${string}` };
+          signedMaxFromAmount?: string;
         };
       };
       setExecutionQuote({
@@ -676,8 +835,26 @@ function ProposalCard({
         qty: decision?.modifiedQty ?? proposal.qty,
         // Shown in the guard panel. The order signature stays capped to this order's size either way.
         otherOpenUnits: qJson.otherOpenUnits as string | undefined,
+        expectedVault: process.env.NEXT_PUBLIC_FLASH_VAULT || undefined,
         quote,
       });
+      // The protection pair is a second set of signatures (WETH approval, permit, sell order):
+      // it gets the same independent check before any of it is signed.
+      if (quote.attachedBracket) {
+        const bracketResult = verifyBracketSigning({
+          chain: proposal.chain,
+          follower: address,
+          targetAsset: proposal.targetAsset,
+          contraAsset: proposal.contraAsset,
+          entryQty: decision?.modifiedQty ?? proposal.qty,
+          priceFloor: bracketPriceFloor(proposal),
+          signedMaxFromAmount: quote.attachedBracket.signedMaxFromAmount,
+          expectedVault: process.env.NEXT_PUBLIC_FLASH_VAULT || undefined,
+          quote: quote.attachedBracket,
+        });
+        result.checks.push(...bracketResult.checks);
+        result.ok = result.ok && bracketResult.ok;
+      }
       setGuard(result);
       if (!result.ok) {
         const bad = result.checks.filter((c) => c.level === "fail").map((c) => c.label);
@@ -787,18 +964,22 @@ function ProposalCard({
   }
 
   async function cancel() {
-    if (!orderId) return;
-    setMsg("sign the cancel message in your wallet (gasless)…");
+    if (!orderId || !receipt) return;
+    // Cancelling the entry leaves an active protection pair live, so cancel both together.
+    const ids = [orderId, ...(protectionCancellable(receipt) && receipt.protection?.bracketOrderId ? [receipt.protection.bracketOrderId] : [])];
+    setMsg(ids.length > 1 ? "sign one message to cancel the order and its protection (gasless)…" : "sign the cancel message in your wallet (gasless)…");
     try {
-      const userSignature = await signMessageAsync({ message: cancelMessage(orderId) });
+      const message = ids.length > 1 ? batchCancelMessage(ids) : cancelMessage(orderId);
+      const userSignature = await signMessageAsync({ message });
       const res = await fetch(`/api/orders/${orderId}/cancel`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ userSignature }),
+        body: JSON.stringify({ userSignature, orderIds: ids }),
       });
-      const j = await res.json();
+      const j = (await res.json()) as { error?: string; results?: { ok: boolean; alreadyFilled?: boolean }[] };
       if (!res.ok) throw new Error(j.error ?? "cancel failed");
-      setMsg("cancelled");
+      const filled = j.results?.some((r) => r.alreadyFilled);
+      setMsg(filled ? "already filled before the cancel landed — see the receipt" : ids.length > 1 ? "order and protection cancelled" : "cancelled");
       await onDone();
     } catch (e) {
       setMsg(e instanceof Error ? e.message : "cancel failed");
@@ -833,15 +1014,21 @@ function ProposalCard({
       ? Math.min(1, (receipt.completedFillCount ?? 0) / receipt.twapBucketCount)
       : null;
   const cancellable = Boolean(
-    receipt?.status && CANCELLABLE.includes(receipt.status) && isFollower,
+    receipt && isFollower && ((receipt.status && CANCELLABLE.includes(receipt.status)) || protectionCancellable(receipt)),
   );
 
   return (
-    <article className="glass rounded-[28px] p-5">
+    <article className={reviewMode ? "panel p-4" : "glass rounded-[28px] p-5"}>
+      {reviewMode ? (
+        <div className="mb-3 flex items-center gap-2 border-b border-line pb-3">
+          <span className="panel-title">Flash quote &amp; wallet signing</span>
+          <LayerTag layer="execution" />
+        </div>
+      ) : null}
       <div className="flex items-start justify-between gap-3">
         <div>
           <div className="flex items-center gap-2">
-            <span className="text-[16px]">{proposal.title}</span>
+            <span className={reviewMode ? "text-[14px] font-medium" : "text-[16px]"}>{proposal.title}</span>
             <span className="rounded-full bg-white/5 px-2 py-0.5 text-[10px] uppercase tracking-widest text-mute">
               {proposal.chain}
             </span>
@@ -872,9 +1059,7 @@ function ProposalCard({
               type="button"
               disabled={!canSign}
               onClick={() => void run()}
-              className={`rounded-full px-4 py-2 text-[13px] ${
-                canSign ? "btn-cream" : "cursor-not-allowed bg-white/5 text-mute"
-              }`}
+              className={`btn ${canSign ? "btn-primary" : ""}`}
             >
               {lockLabel}
             </button>
@@ -1014,7 +1199,16 @@ function ProposalCard({
               </button>
             ) : null}
           </div>
-          <div className="mt-1 font-mono text-[10px] text-mute">order {receipt.flashOrderId}</div>
+          <div className="mt-1 flex items-center justify-between gap-2 font-mono text-[10px] text-mute">
+            <span>order {receipt.flashOrderId}</span>
+            <a
+              className="text-gold"
+              href={`/api/orders/${encodeURIComponent(receipt.flashOrderId)}/evidence?download`}
+              title="Re-reads the order from Flash and saves PACT's decision, quote, fills and tx links as JSON"
+            >
+              evidence.json
+            </a>
+          </div>
           {(receipt.quotedExecutionPrice || receipt.averageFillPrice) ? (
             <dl className="mt-3 border-y border-line text-[11px]">
               <ReviewRow
@@ -1096,7 +1290,7 @@ const TONE = {
 } as const;
 const MARK = { pass: "✓", warn: "!", fail: "✕" } as const;
 
-function GuardPanel({ result }: { result: GuardResult }) {
+export function GuardPanel({ result }: { result: GuardResult }) {
   const fails = result.checks.filter((c) => c.level === "fail").length;
   const warns = result.checks.filter((c) => c.level === "warn").length;
   return (
@@ -1146,7 +1340,7 @@ function defaultMandate(leader: `0x${string}`, policy: Policy): LeaderMandate {
   };
 }
 
-function PolicyEditor({
+export function PolicyEditor({
   policy,
   leaders,
   onSaved,
@@ -1343,6 +1537,9 @@ function PolicyEditor({
                             (mandate) => mandate.leader.toLowerCase() !== l.toLowerCase(),
                           )
                         : [...(draft.mandates ?? []), defaultMandate(l, draft)],
+                      pausedLeaders: (draft.pausedLeaders ?? []).filter(
+                        (paused) => paused.toLowerCase() !== l.toLowerCase(),
+                      ),
                     })
                   }
                   className={`rounded-full px-2.5 py-1 font-mono text-[11px] ${

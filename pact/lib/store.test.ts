@@ -205,3 +205,58 @@ describe("multi-leader demo simulation", () => {
     expect(decision).toMatchObject({ verdict: "ALLOW", action: "COPY" });
   });
 });
+
+describe("follower leader pause", () => {
+  it("holds a paused leader's plans, keeps the mandate, and re-decides on resume", async () => {
+    const store = await freshStore();
+    await store.seedDemo();
+    const follower = store.DEMO_PORTFOLIO_FOLLOWER;
+    const leader = store.DEMO_LEADER;
+    const trendId = () =>
+      store
+        .snapshot()
+        .proposals.find(
+          (proposal) =>
+            proposal.follower.toLowerCase() === follower.toLowerCase() &&
+            proposal.title === "Trend entry · leader one",
+        )!.id;
+
+    const policy = store.policyFor(follower);
+    store.upsertPolicy({ ...policy, pausedLeaders: [leader] });
+    await store.rebuildFor(follower);
+
+    const paused = store.policyFor(follower);
+    expect(paused.follows).toHaveLength(3);
+    expect(paused.pausedLeaders).toEqual([leader]);
+    expect(store.decisionFor(trendId())).toEqual({
+      verdict: "BLOCK",
+      action: "WAIT",
+      reasons: ["LEADER_PAUSED"],
+    });
+    // Other selected leaders are unaffected.
+    const pullback = store
+      .snapshot()
+      .proposals.find(
+        (proposal) =>
+          proposal.follower.toLowerCase() === follower.toLowerCase() &&
+          proposal.title === "Pullback entry · leader two",
+      )!;
+    expect(store.decisionFor(pullback.id)?.reasons).not.toContain("LEADER_PAUSED");
+
+    store.upsertPolicy({ ...paused, pausedLeaders: [] });
+    await store.rebuildFor(follower);
+    expect(store.decisionFor(trendId())).toMatchObject({ verdict: "ALLOW", action: "COPY" });
+  });
+
+  it("drops a pause when the leader is no longer selected", async () => {
+    const store = await freshStore();
+    const follower = "0x2222222222222222222222222222222222222222" as const;
+    const leader = "0x1111111111111111111111111111111111111111" as const;
+    const saved = store.upsertPolicy({
+      ...defaultPolicy(follower),
+      follows: [],
+      pausedLeaders: [leader],
+    });
+    expect(saved.pausedLeaders).toEqual([]);
+  });
+});

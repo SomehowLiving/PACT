@@ -4,7 +4,13 @@ import { tokenDecimals } from "./chains";
 import { defaultPolicy, USDC, WETH } from "./constants";
 import { toUnits } from "./guard";
 import { sha256Json } from "./hash";
-import { assessLeaderPlan, decide, stopRiskSizing } from "./policy";
+import {
+  assessLeaderPlan,
+  decide,
+  isLeaderPaused,
+  leaderPauseDecision,
+  stopRiskSizing,
+} from "./policy";
 import { assetPrice } from "./price";
 import type {
   AuditLog,
@@ -37,8 +43,10 @@ function empty(): Memory {
 
 function persist(m: Memory) {
   try {
-    mkdirSync(dirname(FILE), { recursive: true });
-    writeFileSync(FILE, JSON.stringify(m));
+    // Runtime data, not source: keep Turbopack from watching or tracing it, otherwise every
+    // write looks like a code change and the dev server reloads open pages.
+    mkdirSync(/*turbopackIgnore: true*/ dirname(FILE), { recursive: true });
+    writeFileSync(/*turbopackIgnore: true*/ FILE, JSON.stringify(m));
   } catch {
     /* demo store is best-effort */
   }
@@ -46,7 +54,9 @@ function persist(m: Memory) {
 
 function load(): Memory {
   try {
-    return JSON.parse(readFileSync(FILE, "utf8")) as Memory;
+    // The store path is runtime config; keep Turbopack from tracing the whole project into the
+    // server bundle because of it.
+    return JSON.parse(readFileSync(/*turbopackIgnore: true*/ FILE, "utf8")) as Memory;
   } catch {
     return empty();
   }
@@ -290,17 +300,22 @@ export function policyFor(follower: `0x${string}`) {
   const found = m.policies.find(
     (p) => p.follower.toLowerCase() === follower.toLowerCase(),
   );
-  if (found) return upsertPolicy(found);
+  // Reads must not write: policies are normalized when loaded and when saved, so an
+  // existing one is returned as-is. Persisting here rewrote the store on every poll.
+  if (found) return found;
   return upsertPolicy(defaultPolicy(follower));
 }
 
 function normalizePolicy(policy: Policy): Policy {
   const defaults = defaultPolicy(policy.follower);
+  const follows = policy.follows ?? [];
   return {
     ...defaults,
     ...policy,
     allowChains: policy.allowChains?.length ? policy.allowChains : defaults.allowChains,
-    follows: policy.follows ?? [],
+    follows,
+    // A pause only applies to a selected leader; unfollowing clears it.
+    pausedLeaders: follows.filter((leader) => isLeaderPaused(policy, leader)),
     mandates: (policy.mandates ?? [])
       .filter((mandate) =>
         (policy.follows ?? []).some((leader) => leader.toLowerCase() === mandate.leader.toLowerCase()),
@@ -544,8 +559,12 @@ export async function createProposal(strategyId: string, follower: `0x${string}`
     createdAt: new Date().toISOString(),
   };
 
-  // Fail closed: a sell we cannot price is never sized or signed.
-  const decision: Decision = priceError
+  // A follower pause wins over every other check. Fail closed: a sell we cannot price is
+  // never sized or signed.
+  const paused = leaderPauseDecision(policy, strategy.leader);
+  const decision: Decision = paused
+    ? paused
+    : priceError
     ? { verdict: "BLOCK", action: "DECLINE", reasons: ["PRICE_UNAVAILABLE"] }
     : sizingMode === "STOP_RISK" && !stopRisk
       ? { verdict: "BLOCK", action: "REVIEW", reasons: ["STOP_RISK_PLAN_INVALID"] }
