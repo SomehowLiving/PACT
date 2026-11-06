@@ -45,6 +45,7 @@ export function useCopyabilityOf() {
         activePlanCountForLeader: sleeve?.openPlans ?? 0,
         assetExposureUsd: base.weth?.liveUsd ?? 0,
         leaderVerifiedHuman: !!state.humans?.[leader.toLowerCase()],
+        leaderConduct: state.conduct?.[leader.toLowerCase()],
       };
       const plans = state.strategies.filter((s) => s.leader.toLowerCase() === leader.toLowerCase()).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
       return copyability(plans, policy, mandateFor(policy, leader), ctx, mirrored);

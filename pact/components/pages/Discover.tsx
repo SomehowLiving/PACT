@@ -9,6 +9,7 @@ import { COPY_VERDICT, useCopyabilityOf } from "@/components/pages/use-copyabili
 import { TrackRecord } from "@/components/pages/track-record";
 import { useWatchlist, WatchButton } from "@/components/watchlist";
 import { HumanBadge } from "@/components/WorldVerify";
+import { ConductBadge } from "@/components/ConductPanel";
 import type { Copyability, CopyVerdict } from "@/lib/copyability";
 import { reasonLabel, shortAddr } from "@/lib/format";
 import type { Strategy } from "@/lib/types";
@@ -437,6 +438,7 @@ export function Discover({ scope = "all" }: { scope?: "all" | "watchlist" } = {}
                                 <WatchButton leader={r.leader} bare />
                                 {r.isDemo ? <LayerTag layer="demo" compact /> : null}
                                 <HumanBadge verifiedAt={state?.humans?.[r.leader.toLowerCase()]} compact />
+                                <ConductBadge conduct={state?.conduct?.[r.leader.toLowerCase()]} compact />
                                 {r.paused ? <StatusBadge tone="warn">paused</StatusBadge> : null}
                               </span>
                             </div>

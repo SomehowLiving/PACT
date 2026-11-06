@@ -1,3 +1,4 @@
+import { summarize, type LeaderConduct } from "@/lib/conduct";
 import { isVerifiedHuman } from "@/lib/world";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -117,6 +118,8 @@ export function resetDemoData() {
     quotes: pick(m.quotes),
     receipts: m.receipts.filter((r) => ids.has(r.proposalId)),
     logs: m.logs.filter((l) => ids.has(l.proposalId)),
+    // Real leaders' conduct survives a demo reload; DEMO records are re-seeded.
+    conduct: Object.fromEntries(Object.entries(m.conduct ?? {}).filter(([k]) => !isDemo(k))),
   };
   persist(g.__pact);
 }
@@ -138,6 +141,9 @@ export const DEMO_HIGH_BETA_FOLLOWER =
 export const DEMO_FOLLOWER =
   "0x2222222222222222222222222222222222222222" as const;
 export const DEMO_BOLD = "0x3333333333333333333333333333333333333333" as const;
+/** DEMO leader whose seeded conduct shows selling into followers' buys (lib/conduct). */
+export const DEMO_DUMP_LEADER =
+  "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" as const;
 export const DEMO_CAREFUL =
   "0x4444444444444444444444444444444444444444" as const;
 
@@ -318,6 +324,26 @@ export async function seedDemo() {
     await createProposal(evidence.id, DEMO_EVIDENCE_FOLLOWER),
     await createProposal(highBeta.id, DEMO_HIGH_BETA_FOLLOWER),
   ];
+
+  // "The dump" (DEMO data): a leader whose last two plans were followed by the plan's asset
+  // leaving their wallet while followers' copies filled. Nobody follows them by default; a
+  // follower who does gets new copies held for review (LEADER_SOLD_INTO_FOLLOWERS).
+  const hour = 60 * 60 * 1_000;
+  const dumpBase = { ...base, ...plan, leader: DEMO_DUMP_LEADER, orderType: "twap" as const, qty: "200", durationSeconds: 600, demoCase: "LEADER_DUMP" as const };
+  const pastA = addStrategy({ ...dumpBase, title: "Breakout call · leader four", expiresAt: new Date(Date.now() - 30 * hour).toISOString() });
+  const pastB = addStrategy({ ...dumpBase, title: "Second breakout · leader four", expiresAt: new Date(Date.now() - 6 * hour).toISOString() });
+  addStrategy({ ...dumpBase, title: "Momentum entry · leader four" });
+  const at = (h: number) => new Date(Date.now() - h * hour).toISOString();
+  await setLeaderConduct(
+    summarize(
+      DEMO_DUMP_LEADER,
+      [
+        { strategyId: pastA.id, title: pastA.title, sellIntoFlow: { windowStart: at(48), windowEnd: at(47), followerUnits: 0.42, soldUnits: 0.36, ratio: 0.9, basis: "leader position", flagged: true } },
+        { strategyId: pastB.id, title: pastB.title, frontRun: { leadMinutes: 95, leaderPrice: 2390, followerPrice: 2462, advantageBps: 301, flagged: true }, sellIntoFlow: { windowStart: at(20), windowEnd: at(19), followerUnits: 0.51, soldUnits: 0.4, ratio: 0.8, basis: "leader position", flagged: true } },
+      ],
+      "demo",
+    ),
+  );
 
   return { twap, market, allow, block, split, desks, portfolio, edgeCases };
 }
@@ -641,6 +667,7 @@ export async function createProposal(strategyId: string, follower: `0x${string}`
         leaderProbation: leaderProbation(strategy.leader),
         planSignals: signals,
         leaderVerifiedHuman: isVerifiedHuman(strategy.leader),
+        leaderConduct: m.conduct?.[strategy.leader.toLowerCase()],
       });
   if (decision.verdict === "MODIFY" && decision.modifiedQty) {
     const capUsd = Number(decision.modifiedQty);
@@ -923,6 +950,43 @@ export async function setLeaderEvidence(strategyId: string, evidence: LeaderEvid
     for (const follower of followers) await rebuildFor(follower);
   }
   return strategy;
+}
+
+export function conductFor(leader: string) {
+  return mem().conduct?.[leader.toLowerCase()];
+}
+
+/**
+ * Record a leader's conduct (lib/conduct). When the level or reasons change, it goes into the
+ * evidence log and followers' waiting copies of that leader are re-decided.
+ */
+export async function setLeaderConduct(conduct: LeaderConduct) {
+  const m = mem();
+  const key = conduct.leader.toLowerCase();
+  const before = m.conduct?.[key];
+  (m.conduct ??= {})[key] = conduct;
+  persist(m);
+  // No record yet reads as "clear": a first clean scan is not news, and must not re-decide copies.
+  const changed = (before?.level ?? "clear") !== conduct.level || (before?.reasons ?? []).join() !== conduct.reasons.join();
+  if (!changed) return { conduct, changed };
+  appendEvidence("leader.conduct", `leader:${key}`, { leader: key }, {
+    level: conduct.level,
+    reasons: conduct.reasons,
+    frontRuns: conduct.frontRuns,
+    soldIntoFlow: conduct.soldIntoFlow,
+    source: conduct.source,
+    plans: conduct.plans
+      .filter((p) => p.frontRun?.flagged || p.sellIntoFlow?.flagged)
+      .map((p) => ({ strategyId: p.strategyId, frontRun: p.frontRun, sellIntoFlow: p.sellIntoFlow })),
+  });
+  // Only a change in the hold itself changes a decision. Re-deciding replaces a waiting copy (and
+  // drops its quote), so a caution alone leaves followers' copies untouched.
+  if ((before?.level === "alert") !== (conduct.level === "alert")) {
+    const acted = new Set(m.receipts.map((r) => r.proposalId));
+    const followers = new Set(m.proposals.filter((p) => p.leader.toLowerCase() === key && !acted.has(p.id)).map((p) => p.follower));
+    for (const follower of followers) await rebuildFor(follower);
+  }
+  return { conduct, changed };
 }
 
 /** The execution facts worth recording each time Flash reports a change. */

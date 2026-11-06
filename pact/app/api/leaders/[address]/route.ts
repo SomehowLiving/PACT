@@ -1,7 +1,8 @@
 import { runShadowEntry, settleShadowFor } from "@/lib/shadow-run";
 import { leaderRecord } from "@/lib/leader-record";
 import { verifyLeader } from "@/lib/leader-verify";
-import { evidenceTxIndex, setLeaderEvidence, snapshot } from "@/lib/store";
+import { conductFor, evidenceTxIndex, setLeaderEvidence, snapshot } from "@/lib/store";
+import { scanLeaderConduct } from "@/lib/conduct-run";
 
 export const dynamic = "force-dynamic";
 
@@ -9,6 +10,7 @@ const RECHECK_MS = 60_000;
 const MAX_RECHECKS = 3;
 const MAX_SHADOW_ENTRIES = 2;
 const SETTLE_EVERY_MS = 5 * 60_000;
+const CONDUCT_EVERY_MS = 5 * 60_000;
 
 /**
  * A leader's evidence-backed record: each plan with what PACT verified about the leader's own
@@ -44,6 +46,11 @@ export async function GET(_req: Request, ctx: { params: Promise<{ address: strin
     )
     .slice(0, MAX_RECHECKS);
   for (const s of unsettled) await settleShadowFor(s).catch(() => undefined);
+  // Conduct: did the leader trade against their followers? Re-read every few minutes (DEMO records are kept as seeded).
+  const conduct = conductFor(key);
+  if (conduct?.source !== "demo" && (!conduct || now - Date.parse(conduct.checkedAt) > CONDUCT_EVERY_MS)) {
+    await scanLeaderConduct(key).catch(() => undefined);
+  }
   const state = snapshot();
   const plans = state.strategies
     .filter((s) => s.leader.toLowerCase() === key)
@@ -62,5 +69,5 @@ export async function GET(_req: Request, ctx: { params: Promise<{ address: strin
       takeProfitPrice: s.takeProfitPrice,
       shadow: s.shadow ?? null,
     }));
-  return Response.json({ record: leaderRecord(state, key), plans });
+  return Response.json({ record: leaderRecord(state, key), plans, conduct: state.conduct?.[key] ?? null });
 }

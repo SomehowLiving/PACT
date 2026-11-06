@@ -63,3 +63,51 @@ export async function readTx(hash: string, client: Client = baseClient, nowMs = 
     transfers: decodeTransfers(receipt.logs),
   };
 }
+
+/** Base produces a block every 2 seconds. */
+const BLOCK_S = 2;
+/** Public RPCs cap log ranges; six hours of Base blocks stays well inside. */
+const MAX_WINDOW_BLOCKS = 10_800;
+
+/**
+ * ERC-20 `token` leaving `owner` on Base between two times: every Transfer whose `from` is the
+ * owner. A sale on any Base venue (Flash, an AMM, an aggregator) shows up here; so does a plain
+ * transfer to another wallet. Times are derived from block numbers (2 s blocks).
+ */
+export async function tokenOutflows(
+  owner: string,
+  token: string,
+  fromMs: number,
+  toMs: number,
+  decimals = 18,
+  client: Pick<typeof baseClient, "getBlock" | "getLogs"> = baseClient,
+): Promise<{ at: number; units: number; tx: string }[]> {
+  const head = await client.getBlock({ blockTag: "latest" });
+  const headNo = head.number;
+  const headS = Number(head.timestamp);
+  const blockAt = (ms: number) => headNo - BigInt(Math.max(0, Math.ceil((headS - ms / 1000) / BLOCK_S)));
+  let fromBlock = blockAt(fromMs) - BigInt(5);
+  const toBlock = toMs >= headS * 1000 ? headNo : blockAt(toMs) + BigInt(5);
+  if (toBlock < fromBlock) return [];
+  if (toBlock - fromBlock > BigInt(MAX_WINDOW_BLOCKS)) fromBlock = toBlock - BigInt(MAX_WINDOW_BLOCKS);
+  const logs = await client.getLogs({
+    address: token as Hex,
+    event: {
+      type: "event",
+      name: "Transfer",
+      inputs: [
+        { type: "address", name: "from", indexed: true },
+        { type: "address", name: "to", indexed: true },
+        { type: "uint256", name: "value", indexed: false },
+      ],
+    },
+    args: { from: owner as Hex },
+    fromBlock,
+    toBlock,
+  });
+  return logs.map((l) => ({
+    at: (headS - Number(headNo - (l.blockNumber ?? headNo)) * BLOCK_S) * 1000,
+    units: Number(l.args.value ?? BigInt(0)) / 10 ** decimals,
+    tx: l.transactionHash ?? "",
+  }));
+}

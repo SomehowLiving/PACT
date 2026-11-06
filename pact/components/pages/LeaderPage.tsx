@@ -9,6 +9,8 @@ import { useDeskContext } from "@/components/DeskContext";
 import { TrackRecord } from "@/components/pages/track-record";
 import { ActionBadge, Empty, LayerTag, leaderName, MetricStrip, PageHeader, Panel, Segmented, StatusBadge, type Tone } from "@/components/ui";
 import { HumanBadge } from "@/components/WorldVerify";
+import { ConductBadge, ConductPanel } from "@/components/ConductPanel";
+import type { LeaderConduct } from "@/lib/conduct";
 import type { LeaderRecord } from "@/lib/leader-record";
 import type { LeaderEvidence, LeaderEvidenceStatus, ShadowCopy } from "@/lib/types";
 import { reasonLabel } from "@/lib/format";
@@ -50,7 +52,7 @@ const bps = (v?: number) => (v === undefined ? "—" : `${v > 0 ? "+" : ""}${v.t
 
 /** One leader, everything PACT can show from evidence: own execution, paper copies, copiers. */
 export function LeaderPage({ address }: { address: string }) {
-  const [data, setData] = useState<{ record: LeaderRecord; plans: PlanRow[] } | null>(null);
+  const [data, setData] = useState<{ record: LeaderRecord; plans: PlanRow[]; conduct?: LeaderConduct | null } | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     let live = true;
@@ -113,6 +115,7 @@ export function LeaderPage({ address }: { address: string }) {
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <HumanBadge verifiedAt={humans?.[address.toLowerCase()]} />
+            <ConductBadge conduct={data?.conduct ?? state?.conduct?.[address.toLowerCase()]} />
             {r ? (
               <span title={r.shadow.probationReason}>
                 <StatusBadge tone={r.shadow.probation === "GRADUATED" ? "good" : "warn"} icon={r.shadow.probation === "GRADUATED" ? "✓" : "◷"}>
@@ -266,6 +269,8 @@ export function LeaderPage({ address }: { address: string }) {
         </Panel>
       ) : null}
       {tab === "execution" ? (
+        <div className="space-y-4">
+          <ConductPanel conduct={data?.conduct ?? state?.conduct?.[address.toLowerCase()]} />
           <Panel title="Plans and the leader's own execution" subtitle="What PACT checked for each plan, on Flash and on Base" layer="execution">
             {plans.length ? (
               <ul className="divide-y divide-line-2">
@@ -304,6 +309,7 @@ export function LeaderPage({ address }: { address: string }) {
               <Empty title="No plans published" />
             )}
           </Panel>
+        </div>
       ) : null}
       {tab === "paper" ? (
             <Panel

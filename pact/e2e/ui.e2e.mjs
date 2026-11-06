@@ -147,6 +147,17 @@ check("Portfolio shows its summary tiles", ["Total Value", "Open PnL", "Allocate
 await p.getByRole("tab", { name: "By Leader" }).click();
 check("Portfolio tabs switch views", (await p.getByText("Remaining capacity").count()) > 0);
 await p.screenshot({ path: OUT + "9-portfolio.png" });
+
+// Leader conduct (DEMO): the badge on Discover and the profile's Follower fairness panel.
+await p.goto(`${BASE}/discover`, { waitUntil: "networkidle" });
+await p.locator("main table").first().waitFor();
+check("Discover flags a leader who sold into followers' buys", (await p.getByText(/sold into followers ×2/).count()) > 0);
+await p.goto(`${BASE}/leaders/0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb?tab=execution`, { waitUntil: "networkidle" });
+await p.getByText("Follower fairness").first().waitFor({ timeout: 15000 });
+const fairness = await p.locator(".panel", { hasText: "Follower fairness" }).first().innerText();
+check("the profile explains the pattern, the hold and the limits", /Sold into followers' buys ×2/.test(fairness) && fairness.includes("holds every follower") && fairness.includes("Base only"), fairness.replace(/\n/g, " · ").slice(0, 160));
+await p.screenshot({ path: OUT + "12-conduct.png" });
+
 await p.goto(`${BASE}/execution`, { waitUntil: "networkidle" });
 const ordersText = await p.locator("main").innerText();
 check("Orders page loads (table or empty state)", ordersText.includes("Total Orders") || ordersText.includes("No Flash orders yet"));

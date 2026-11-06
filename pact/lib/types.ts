@@ -92,7 +92,8 @@ export type DemoCase =
   | "EXPIRED_PLAN"
   | "LOW_RR_CAUTION"
   | "EVIDENCE_REVIEW"
-  | "HIGH_BETA_PAIR_REFUSAL";
+  | "HIGH_BETA_PAIR_REFUSAL"
+  | "LEADER_DUMP";
 
 export type LeaderMandate = {
   leader: `0x${string}`;
@@ -435,4 +436,6 @@ export type DeskState = {
   logs: AuditLog[];
   /** Leader address (lowercase) → when they verified as a unique human with World ID. */
   humans?: Record<string, string>;
+  /** Leader address (lowercase) → did they trade against their followers (lib/conduct). */
+  conduct?: Record<string, import("./conduct").LeaderConduct>;
 };

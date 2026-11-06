@@ -14,6 +14,7 @@ export type CopyContext = {
   activePlanCountForLeader: number;
   assetExposureUsd: number;
   leaderVerifiedHuman?: boolean;
+  leaderConduct?: { level: "clear" | "caution" | "alert"; reasons: string[] };
 };
 
 export type PlanPreview = {
@@ -103,6 +104,7 @@ export function previewPlan(
             activePlanCount: ctx.activePlanCount,
             activePlanCountForLeader: ctx.activePlanCountForLeader,
             leaderVerifiedHuman: ctx.leaderVerifiedHuman,
+            leaderConduct: ctx.leaderConduct,
           }));
   const approvedUsd =
     decision.verdict === "BLOCK" ? 0 : decision.verdict === "MODIFY" ? Number(decision.modifiedQty) : requestedUsd;

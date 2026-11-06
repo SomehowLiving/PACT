@@ -26,6 +26,7 @@ export type EvidenceKind =
   | "order.cancel_requested"
   | "leader.evidence"
   | "leader.human_verified"
+  | "leader.conduct"
   | "shadow.entry"
   | "shadow.settled"
   | "autopilot.granted"

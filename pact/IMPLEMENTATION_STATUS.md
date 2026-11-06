@@ -767,3 +767,32 @@ Full mock run (no funds): typecheck, lint, 158 unit, 9 live Flash, 3 anvil, 14 F
 the Base-fork Permit2 test, follow e2e 45/45 (Flash quotes, wallet guard, signing, Flash
 answering on balance for Base and Arc, Autopilot dry run, six leaders), UI e2e 33/33, World
 e2e 22/22 on staging with World's simulator, production build.
+
+## Leader conduct: front-running and selling into followers' buys (Nov 6, 2026)
+
+L3 signal, first-party (`lib/conduct.ts`, scanner `lib/conduct-run.ts`):
+
+- **Traded well before publishing**: the leader's own trade (from the evidence they attached,
+  read on Base, which includes their Flash fills) came ≥ 30 min before the plan was published
+  and followers' real Flash fills paid ≥ 100 bps worse. Trading just before publishing is
+  normal skin in the game and is not flagged.
+- **Sold into followers' buys**: the plan's asset left the leader's wallet on Base (any Base
+  venue, via ERC-20 `Transfer` logs, `tokenOutflows` in `lib/base-rpc.ts`) while followers'
+  copies were filling (first fill to 30 min after the last), ≥ 25% of the leader's evidenced
+  position (or of what followers bought when the position is unknown).
+- One occurrence is a caution (badge); a repeat is an alert: `decide()` holds every
+  follower's new copies of that leader for review (`LEADER_SOLD_INTO_FOLLOWERS`,
+  `LEADER_FRONT_RAN_FOLLOWERS`), like a contradicted plan. Changes are logged as
+  `leader.conduct` in the leader's evidence thread. Copies are re-decided only when the hold
+  starts or ends.
+- Re-checked when followers' fills arrive (throttled) and when the leader's profile is read
+  (every 5 min). Shown as a badge on Discover and the profile, and a "Follower fairness"
+  panel on the profile's Execution evidence tab, with its limits: Base only; CEX, other
+  chains and other wallets are not visible; a transfer out counts like a sale.
+- DEMO: leader `0xbbbb…bbbb` ("leader four") is seeded with a conduct record (labelled DEMO).
+
+Tests: `lib/conduct.test.ts` (11: both rules, skin-in-the-game not flagged, window edges,
+caution vs alert, the policy hold, a full scan through the store with Base outflows injected,
+block-time mapping, a first clean scan is not news). Follow e2e 48/48 (Case 10: the DEMO
+record holds a new follower's copy, logged); UI e2e 35/35. Found and fixed while testing: a
+first clean scan re-decided every waiting copy of the leader, dropping their saved quotes.

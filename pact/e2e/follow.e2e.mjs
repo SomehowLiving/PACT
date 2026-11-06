@@ -574,6 +574,30 @@ try {
     const q = await api("/api/quote", { proposalId: last.id, funder: fol.address }, fc);
     check("Flash quotes the sixth leader's copy", q.status === 200 && !!q.json?.quote?.orderTypedData, `status ${q.status} ${q.json?.error ?? ""}`);
   }
+
+  // ---------- Case 10: a leader who sold into their followers' buys ----------
+  console.log("\n# Case 10: a leader who sold into followers' buys (DEMO conduct record)");
+  {
+    await api("/api/demo", {});
+    const dump = "0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const prof = await api(`/api/leaders/${dump}`);
+    const c = prof.json?.conduct;
+    check("the leader's record shows the repeated pattern", c?.level === "alert" && c?.soldIntoFlow === 2 && c?.source === "demo", JSON.stringify({ level: c?.level, sold: c?.soldIntoFlow, ran: c?.frontRuns }));
+    const fol = privateKeyToAccount(generatePrivateKey());
+    const fc = await signInNode(fol);
+    const current = (await api(`/api/policy?follower=${fol.address}`)).json.policy;
+    await api("/api/policy", { ...current, follows: [dump] }, fc);
+    // Copy the leader's open plan the way "Mirror open intents" does.
+    const open = (await api("/api/state")).json.strategies.filter((s) => s.leader.toLowerCase() === dump && Date.parse(s.expiresAt) > Date.now());
+    for (const s of open) await api("/api/proposals", { strategyId: s.id, follower: fol.address }, fc);
+    const st = (await api(`/api/state?follower=${fol.address}`)).json;
+    const mine = st.proposals.filter((p) => p.follower.toLowerCase() === fol.address.toLowerCase() && p.leader.toLowerCase() === dump);
+    const live = mine.filter((p) => Date.parse(p.expiresAt) > Date.now());
+    const reasons = live.map((p) => st.decisions[p.id]?.reasons ?? []);
+    check("a new follower's copy of that leader is held for review", live.length > 0 && reasons.every((r) => r.includes("LEADER_SOLD_INTO_FOLLOWERS")), JSON.stringify(reasons));
+    const leaderThread = await api(`/api/evidence?thread=${encodeURIComponent(`leader:${dump}`)}`);
+    check("the finding is in the evidence log", (leaderThread.json?.events ?? []).some((e) => e.kind === "leader.conduct" && e.data.level === "alert"));
+  }
 } finally {
   await browser.close();
 }

@@ -665,6 +665,7 @@ const EVENT_LABEL: Record<EvidenceEvent["kind"], string> = {
   "order.cancel_requested": "Cancel requested",
   "leader.evidence": "Leader evidence checked",
   "leader.human_verified": "Leader verified as a unique human",
+  "leader.conduct": "Leader conduct re-checked",
   "shadow.entry": "Paper copy entered",
   "shadow.settled": "Paper copy settled",
   "autopilot.granted": "Autopilot session granted",

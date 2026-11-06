@@ -36,6 +36,8 @@ export type RiskContext = {
   planSignals?: Signal[];
   /** World ID: the leader proved they are a unique human (lib/world). */
   leaderVerifiedHuman?: boolean;
+  /** L3 leader conduct (lib/conduct): a repeated front-run or sell-into-followers pattern. */
+  leaderConduct?: { level: "clear" | "caution" | "alert"; reasons: string[] };
 };
 
 export type ExecutionMetrics = {
@@ -235,6 +237,10 @@ export function decide(
   // The leader's own execution contradicts the plan: hold it for every follower.
   if (proposal.leaderEvidenceStatus === "MISMATCH") {
     return { verdict: "BLOCK", action: "REVIEW", reasons: ["LEADER_EXECUTION_MISMATCH"] };
+  }
+  // The leader repeatedly traded against the followers who copied them: hold for every follower.
+  if (context.leaderConduct?.level === "alert") {
+    return { verdict: "BLOCK", action: "REVIEW", reasons: context.leaderConduct.reasons };
   }
   // R9: a bigger re-entry right after a stop-out is held for the follower to look at.
   if (context.planSignals?.some((s) => s.id === "REVENGE_PATTERN" && s.level === "alert")) {

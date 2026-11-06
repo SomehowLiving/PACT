@@ -55,6 +55,12 @@ const CASES: Record<DemoCase, CaseMeta> = {
     intent: "Limit entry for an asset outside the allowlist",
     rule: "Only explicitly approved pairs can reach execution",
   },
+  LEADER_DUMP: {
+    profile: "CONDUCT",
+    label: "Leader sold into followers' buys",
+    intent: "A leader whose asset left their wallet while followers' copies filled, twice",
+    rule: "A repeated pattern holds every follower's new copies for review",
+  },
 };
 
 const CASE_ORDER: DemoCase[] = [

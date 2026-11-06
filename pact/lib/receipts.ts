@@ -1,3 +1,4 @@
+import { scheduleConductScan } from "./conduct-run";
 import { fillExecutionMetrics, getOrder, type FlashFillRow, type FlashOrder, type FlashOrderDetail } from "./flash";
 import { legFacts, positionFrom } from "./positions";
 import { patchReceipt, policyFor, rebuildFor, snapshot } from "./store";
@@ -99,6 +100,9 @@ export async function refreshReceipt(receipt: Receipt): Promise<RefreshResult> {
   ) {
     await rebuildFor(receipt.follower);
   }
+
+  // New follower fills are what leader conduct is measured against: re-check the leader.
+  if (proposal && (updated.fills?.length ?? 0) > (receipt.fills?.length ?? 0)) scheduleConductScan(proposal.leader);
 
   return { ok: true, receipt: updated, detail, protectionOrder };
 }
