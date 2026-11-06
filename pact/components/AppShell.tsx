@@ -68,7 +68,7 @@ type NavItem = { href: string; label: string; icon: IconName; count?: "following
 
 const PRIMARY: NavItem[] = [
   { href: "/", label: "Overview", icon: "overview" },
-  { href: "/discover", label: "Discover", icon: "discover" },
+  { href: "/discover", label: "Discover", icon: "discover", match: ["/leaders"] },
   { href: "/following", label: "Following", icon: "following", count: "following" },
   { href: "/proposals", label: "Proposals", icon: "proposals", count: "awaiting", match: ["/review"] },
   { href: "/portfolio", label: "Portfolio", icon: "portfolio" },
@@ -92,7 +92,7 @@ const MORE: { href: string; label: string }[] = [
 
 const TOP_TABS: { href: string; label: string; match?: string[] }[] = [
   { href: "/trade", label: "Trade", match: ["/review"] },
-  { href: "/discover", label: "Leaders", match: ["/following"] },
+  { href: "/discover", label: "Leaders", match: ["/following", "/leaders"] },
   { href: "/proposals", label: "Plans", match: ["/leader"] },
   { href: "/portfolio", label: "Portfolio" },
   { href: "/execution", label: "Receipts", match: ["/history"] },
@@ -100,7 +100,7 @@ const TOP_TABS: { href: string; label: string; match?: string[] }[] = [
 
 function active(path: string, href: string, match?: string[]) {
   if (href === "/") return path === "/";
-  return path === href || path.startsWith(`${href}/`) || !!match?.some((m) => path.startsWith(m));
+  return path === href || path.startsWith(`${href}/`) || !!match?.some((m) => path === m || path.startsWith(`${m}/`));
 }
 
 /* ── Sidebar ──────────────────────────────────────────────────────────── */

@@ -150,8 +150,17 @@ describe("flash contracts", () => {
     const m = executionMetrics(quote, "buy");
     expect(Number(m.executionPrice)).toBeCloseTo(19.5 / 0.0078, 6); // market mark, what the limit bounds
     expect(Number(m.allInPrice)).toBeCloseTo(20 / 0.0078, 6); // USD spent ÷ WETH received
-    expect(Number(m.costRatio)).toBeCloseTo(0.018, 6); // 0.36 / 20
+    // Value lost (20 − 19.5) exceeds the reported fee (0.36): cost is what converting loses.
+    expect(Number(m.costRatio)).toBeCloseTo(0.025, 6);
     expect(m.feeNotional).toBe("0.36");
+
+    // A real Flash market quote: fee field 0, value received below value spent.
+    const market = executionMetrics(
+      { quoteId: "q3", from: { amount: "100", notional: "100" }, to: { amount: "0.0445", notional: "99.832016" }, fees: { estimatedFeeNotional: "0" } },
+      "buy",
+    );
+    expect(Number(market.costRatio)).toBeCloseTo(0.00167984, 8);
+    expect(market.feeNotional).toBe("0");
 
     const sell = executionMetrics(
       {

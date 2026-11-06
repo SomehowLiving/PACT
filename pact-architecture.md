@@ -171,14 +171,14 @@ Facts with provenance; a signal never makes a decision. Each signal declares its
 | --- | --- | --- |
 | Plan quality (structure, reward:risk, invalidation) | Declaration | Built |
 | Entry drift (declared vs all-in quote) | Quote | Built, but uses the market mark, not all-in (fix) |
-| Execution cost (fees ÷ notional) | Quote | Not used (fix) |
+| Execution cost (fees ÷ notional) | Quote | Built: max(reported fee, value lost converting) ÷ size; Flash market quotes report a $0 fee with the cost inside the price |
 | Price impact | Quote | Built |
 | Concentration (same asset and side) | Domain | Built |
-| Leader execution evidence | LeaderExecution | API-key-bound (replace with onchain) |
-| Copy fidelity per leader | Fill + LeaderExecution | Follower side built; leader side planned |
+| Leader execution evidence | LeaderExecution | Built: Flash order matched to the plan + leader wallet trades verified on Base |
+| Copy fidelity per leader | Fill + LeaderExecution | Built both sides: leader onchain drift, copiers' drift, gap, plus paper copies |
 | Style drift (size vs leader's history) | LeaderExecution history | Planned (needs history) |
 | Reference-price divergence (Pyth vs chart vs quote) | Market + Quote | Planned |
-| Mark-to-market via reverse-side quote | Quote | Planned (honest unrealized PnL) |
+| Mark-to-market via reverse-side quote | Quote | Built: exit quote for the open size (`lib/marks.ts`) |
 
 ### L4 — Policy
 
@@ -237,7 +237,7 @@ its source layer. Mandate changes and publishing are signed (L0 identity).
 | R1 size cap | L4 plan-time | Built | — |
 | R2 leverage cap | — | Dormant | Spot only; no leverage on current venue |
 | R3 drift bound | L4 + L5 compile | Built | "Enforced by Flash's engine", and use the all-in price |
-| R4 cost budget | L4 quote-time | Not built | Use `fees.estimatedFeeNotional`; funding not applicable |
+| R4 cost budget | L4 quote-time | Built | Cost = max(fee, value lost); default budget 3% |
 | R5 price impact | L4 quote-time | Built | Send on submit too |
 | R6 / R7 heat caps | L4 plan-time | Partial (same asset and side) | Correlation needs history; keep descriptive |
 | R8 style drift | L3 + L4 | Planned | Needs verified leader history (onchain) |
@@ -246,8 +246,8 @@ its source layer. Mandate changes and publishing are signed (L0 identity).
 | R11 oracle divergence | L3 + L4 | Planned | Pyth Hermes adapter |
 | R12 plan TTL | L2 + L5 | Partial | Copy expiry must not outlive the plan (today 7-day limits) |
 | R13 breaker → kill switch | L4 + L5 + L6 | Partial | Needs bracket legs in the batch and a signer at trip time |
-| R14 un-copyable flag | L3 | Planned | Needs fidelity history |
-| R15 probation gate | L3 + L4 | Planned | Shadow-copy via quotes; evidence onchain |
+| R14 un-copyable flag | L3 | Built (signal) | >50% of ≥3 paper copies not copyable → "hard to copy" |
+| R15 probation gate | L3 + L4 | Built | 3 settled paper copies and no contradiction; follower opt-in `requireGraduatedLeader` |
 
 ---
 

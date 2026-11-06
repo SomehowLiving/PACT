@@ -30,6 +30,29 @@ export type EvidenceCheck = {
   detail: string;
 };
 
+/** PACT's paper copy of a plan: entry from a Flash quote, outcome from market candles. */
+export type ShadowCopy = {
+  status: "NOT_COPYABLE" | "WAITING_ENTRY" | "OPEN" | "STOPPED" | "TARGET" | "EXPIRED";
+  sizeUsd: number;
+  quotedAt: string;
+  enteredAt?: string;
+  /** All-in USD per target unit, fees included. */
+  entryPrice: number;
+  marketPrice: number;
+  costRatio: number;
+  entryDriftBps?: number;
+  /** Why the default mandate would not have copied it. */
+  reasons: string[];
+  exitPrice?: number;
+  exitedAt?: string;
+  pnlPct?: number;
+  rMultiple?: number;
+  markPrice?: number;
+  markedAt?: string;
+  settledCheckAt?: string;
+  source: "flash-quote+geckoterminal-candles";
+};
+
 /** What PACT checked about a leader's execution for one plan, and when. */
 export type LeaderEvidence = {
   status: LeaderEvidenceStatus;
@@ -117,6 +140,8 @@ export type Strategy = {
   /** Transactions the leader offered as evidence (any venue). */
   leaderTxHashes?: string[];
   leaderEvidence?: LeaderEvidence;
+  /** PACT's own paper copy of this plan (lib/shadow); never a real receipt. */
+  shadow?: ShadowCopy;
   chain: Chain;
   targetAsset: `0x${string}`;
   contraAsset: `0x${string}`;
@@ -179,6 +204,8 @@ export type Policy = {
   requireLeaderExecutionEvidence?: boolean;
   /** With evidence required: a matching Flash order (default) or finalised onchain trades. */
   minLeaderEvidence?: "PLAN_MATCHED" | "ONCHAIN_VERIFIED";
+  /** Copy only leaders whose paper copies have settled (probation, handbook R15). */
+  requireGraduatedLeader?: boolean;
   minRewardRisk: number;
   askHumanUsd?: number;
   /** Assist may prepare policy-compliant review items; it never receives signing authority. */

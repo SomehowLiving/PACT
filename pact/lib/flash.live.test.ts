@@ -107,6 +107,43 @@ describe.skipIf(!LIVE)("Flash live quotes (no orders)", () => {
     expect(tx.transfers.some((t) => t.token === usdc.toLowerCase() && t.value > BigInt(0))).toBe(true);
   }, 30_000);
 
+  it("paper-copies a plan with a real Flash quote and marks it on real candles", async () => {
+    const { runShadowEntry, settleShadowFor } = await import("./shadow-run");
+    const { assetPrice } = await import("./price");
+    const mid = await assetPrice("base", weth);
+    const now = Date.now();
+    const plan = {
+      id: "live-shadow",
+      leader: FUNDER as `0x${string}`,
+      chain: "base" as const,
+      side: "buy" as const,
+      orderType: "twap" as const,
+      qty: "250",
+      targetAsset: weth,
+      contraAsset: usdc,
+      entryReferencePrice: mid.toFixed(2),
+      stopLossPrice: (mid * 0.97).toFixed(2),
+      takeProfitPrice: (mid * 1.05).toFixed(2),
+      createdAt: new Date(now).toISOString(),
+      expiresAt: new Date(now + 4 * 3_600_000).toISOString(),
+      protectionExpiresAt: new Date(now + 24 * 3_600_000).toISOString(),
+      title: "live",
+      thesis: "live",
+      leaderPlanGrade: "DISCIPLINED" as const,
+      leaderPlanReasons: [],
+      leaderEvidenceStatus: "UNVERIFIED" as const,
+    };
+    // Not in the store, so setShadow is a no-op; the returned paper copy is what is checked.
+    const entered = await runShadowEntry(plan);
+    expect(entered?.status).toBe("OPEN");
+    expect(entered!.sizeUsd).toBe(100);
+    expect(Math.abs(entered!.entryDriftBps!)).toBeLessThan(150);
+    expect(entered!.costRatio).toBeGreaterThan(0);
+    const marked = await settleShadowFor({ ...plan, shadow: { ...entered!, enteredAt: new Date(now - 30 * 60_000).toISOString() } });
+    expect(["OPEN", "STOPPED", "TARGET"]).toContain(marked?.status);
+    if (marked?.status === "OPEN") expect(marked.markPrice).toBeGreaterThan(0);
+  }, 30_000);
+
   it("marks an open position at Flash's exit quote, net of fees and below the mid", async () => {
     const { exitMark } = await import("./marks");
     const { assetPrice } = await import("./price");

@@ -1,4 +1,5 @@
 import { evidenceRank } from "./leader-evidence";
+import { shadowSummary, type ShadowSummary } from "./shadow";
 import type { DeskState, LeaderEvidenceStatus } from "./types";
 
 /**
@@ -17,6 +18,10 @@ export type LeaderRecord = {
   /** The leader's own onchain-verified volume and their average entry drift vs declared. */
   leaderVolumeUsd: number;
   leaderAvgEntryDriftBps?: number;
+  /** PACT's paper copies of this leader's plans, and probation (handbook F4, R14, R15). */
+  shadow: ShadowSummary;
+  /** Followers' mean entry drift minus the leader's own: the cost of copying rather than leading. */
+  fidelityGapBps?: number;
   copies: {
     proposals: number;
     submitted: number;
@@ -50,8 +55,12 @@ export function leaderRecord(state: Pick<DeskState, "strategies" | "proposals" |
   const receipts = state.receipts.filter((r) => ids.has(r.proposalId) && r.flashOrderId);
   const filled = receipts.filter((r) => (r.finalFillCount ?? r.fills?.length ?? 0) > 0 || (r.position?.entryUnits ?? 0) > 0);
   const closed = receipts.filter((r) => r.position?.closed && (r.position.exitUnits ?? 0) > 0);
+  const copierDrift = mean(filled.map((r) => r.entryDriftBps).filter((v): v is number => v !== undefined));
+  const leaderDrift = mean(leaderDrifts);
   return {
     leader: key,
+    shadow: shadowSummary(plans),
+    fidelityGapBps: copierDrift !== undefined && leaderDrift !== undefined ? copierDrift - leaderDrift : undefined,
     plans: plans.length,
     evidence,
     backed: plans.filter((p) => evidenceRank(p.leaderEvidenceStatus) >= evidenceRank("PLAN_MATCHED")).length,

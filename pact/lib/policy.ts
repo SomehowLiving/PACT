@@ -29,6 +29,8 @@ export type RiskContext = {
   assetExposureUsd?: number;
   activePlanCount?: number;
   activePlanCountForLeader?: number;
+  /** From paper copies (lib/shadow): has the leader left probation? */
+  leaderProbation?: "PROBATION" | "GRADUATED";
 };
 
 export type ExecutionMetrics = {
@@ -228,6 +230,9 @@ export function decide(
   // The leader's own execution contradicts the plan: hold it for every follower.
   if (proposal.leaderEvidenceStatus === "MISMATCH") {
     return { verdict: "BLOCK", action: "REVIEW", reasons: ["LEADER_EXECUTION_MISMATCH"] };
+  }
+  if (policy.requireGraduatedLeader && context.leaderProbation !== "GRADUATED") {
+    return { verdict: "BLOCK", action: "REVIEW", reasons: ["LEADER_ON_PROBATION"] };
   }
   if (
     policy.requireLeaderExecutionEvidence &&

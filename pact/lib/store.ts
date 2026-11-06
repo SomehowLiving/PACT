@@ -5,6 +5,7 @@ import { defaultPolicy, USDC, WETH } from "./constants";
 import { toUnits } from "./guard";
 import { appendEvidence, hashSync, lastInThread, resetEvidence, threads } from "./evidence";
 import { sha256Json } from "./hash";
+import { shadowSummary } from "./shadow";
 import {
   assessLeaderPlan,
   decide,
@@ -19,6 +20,7 @@ import type {
   DeskState,
   LeaderEvidence,
   LeaderMandate,
+  ShadowCopy,
   Policy,
   Proposal,
   Receipt,
@@ -624,6 +626,7 @@ export async function createProposal(strategyId: string, follower: `0x${string}`
         assetExposureUsd: assetExposure(follower, strategy.targetAsset, strategy.side),
         activePlanCount: activePlanCount(follower),
         activePlanCountForLeader: activePlanCount(follower, strategy.leader),
+        leaderProbation: leaderProbation(strategy.leader),
       });
   if (decision.verdict === "MODIFY" && decision.modifiedQty) {
     const capUsd = Number(decision.modifiedQty);
@@ -788,6 +791,59 @@ export function patchReceipt(proposalId: string, patch: Partial<Receipt>) {
     );
   }
   return m.receipts[i];
+}
+
+/** Probation from the leader's paper copies (lib/shadow). */
+export function leaderProbation(leader: string) {
+  const key = leader.toLowerCase();
+  return shadowSummary(mem().strategies.filter((s) => s.leader.toLowerCase() === key)).probation;
+}
+
+/**
+ * Record PACT's paper copy of a plan. Entry and settlement are chained as evidence; a mark on
+ * an open paper copy is stored but not chained (it is not an outcome). If the leader leaves
+ * probation, waiting copies of their plans are re-decided.
+ */
+export async function setShadow(strategyId: string, shadow: ShadowCopy) {
+  const m = mem();
+  const strategy = m.strategies.find((s) => s.id === strategyId);
+  if (!strategy) return undefined;
+  const before = strategy.shadow;
+  const probationBefore = leaderProbation(strategy.leader);
+  strategy.shadow = shadow;
+  persist(m);
+  const refs = { strategyId: strategy.id, leader: strategy.leader };
+  if (!before) {
+    appendEvidence("shadow.entry", threads.plan(strategy.id), refs, {
+      status: shadow.status,
+      sizeUsd: shadow.sizeUsd,
+      entryPrice: shadow.entryPrice,
+      marketPrice: shadow.marketPrice,
+      costRatio: shadow.costRatio,
+      entryDriftBps: shadow.entryDriftBps,
+      reasons: shadow.reasons,
+      source: shadow.source,
+    });
+  } else if (before.status !== shadow.status) {
+    appendEvidence("shadow.settled", threads.plan(strategy.id), refs, {
+      status: shadow.status,
+      enteredAt: shadow.enteredAt,
+      exitPrice: shadow.exitPrice,
+      exitedAt: shadow.exitedAt,
+      pnlPct: shadow.pnlPct,
+      rMultiple: shadow.rMultiple,
+      reasons: shadow.reasons,
+    });
+  }
+  if (leaderProbation(strategy.leader) !== probationBefore) {
+    const acted = new Set(m.receipts.map((r) => r.proposalId));
+    const key = strategy.leader.toLowerCase();
+    const followers = new Set(
+      m.proposals.filter((p) => p.leader?.toLowerCase() === key && !acted.has(p.id)).map((p) => p.follower),
+    );
+    for (const follower of followers) await rebuildFor(follower);
+  }
+  return strategy;
 }
 
 /** Transaction hash → the plan it already backs, so one trade cannot back two plans. */

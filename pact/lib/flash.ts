@@ -146,13 +146,24 @@ export function executionMetrics(quote: FlashQuote, side: Side) {
       ? (toNotional - (feeNotional ?? 0)) / fromAmount
       : undefined;
   const sizeUsd = buy ? fromNotional : toNotional;
-  const costRatio = feeNotional !== undefined && sizeUsd && sizeUsd > 0 ? feeNotional / sizeUsd : undefined;
+  // Cost is what converting loses, whichever way Flash reports it. Market quotes can show a zero
+  // fee field while the value received is below the value spent (fees and impact inside the
+  // price), so take the larger of the reported fee and the value actually lost.
+  const valueLost =
+    fromNotional !== undefined && toNotional !== undefined
+      ? Math.max(0, buy ? fromNotional - toNotional : fromNotional - (toNotional - (feeNotional ?? 0)))
+      : undefined;
+  const cost = Math.max(feeNotional ?? 0, valueLost ?? 0);
+  const costRatio =
+    (feeNotional !== undefined || valueLost !== undefined) && sizeUsd && sizeUsd > 0 ? cost / sizeUsd : undefined;
 
   return {
     estimatedPriceImpact: quote.estimatedPriceImpact,
     executionPrice: executionPrice?.toString(),
     allInPrice: allInPrice?.toString(),
     feeNotional: feeNotional?.toString(),
+    /** USD lost converting: max(reported fee, value spent − value received). */
+    costNotional: feeNotional !== undefined || valueLost !== undefined ? cost.toString() : undefined,
     costRatio: costRatio?.toString(),
   };
 }

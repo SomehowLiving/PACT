@@ -459,3 +459,30 @@ follower's copy is held, attaching without a session is 401, and the record coun
 
 Not covered: native-ETH legs (WETH/USDC only); leaders whose trades settle to another
 recipient wallet; drawdown (needs longer history).
+
+## Phase 3 · step 2: paper copies, probation, copy fidelity, leader page (Nov 6, 2026)
+
+A new leader had no record PACT could stand behind. Now PACT makes its own (handbook F4).
+
+| Layer | Piece | Behaviour |
+| --- | --- | --- |
+| L3 | `lib/shadow.ts` (pure) | **Paper entry**: a real Flash quote at $100 (or the plan size if smaller) gives the all-in price a follower would pay at publish; the default mandate judges it (entry drift, execution cost, market already below the stop or at the target → `NOT_COPYABLE` with reasons); a limit plan waits until candles trade through the limit. **Settlement**: the plan's stop and target replayed on candles after entry (a candle touching both = stop), exit cost = entry cost, result in R and %; expires at the protection deadline at the last close; open copies are marked, not settled. **Summary**: settled / targets / stops / expired, average R and %, drift, cost; **probation** until 3 paper copies settle with no contradicted plan (R15); **hard to copy** when more than half of ≥ 3 paper copies were not copyable (R14) |
+| L5 | `lib/shadow-run.ts` | quotes and candles only, never a signature; entry at publish; settlement re-checked every 5 min from the leader read |
+| L1 | `shadow.entry`, `shadow.settled` events on the plan thread; marks are stored but not chained | |
+| L4 | `requireGraduatedLeader` → REVIEW `LEADER_ON_PROBATION`; graduation re-decides waiting copies | |
+| L3 | `leaderRecord` adds the paper summary and `fidelityGapBps` (copiers' drift − leader's own) | |
+| L7 | `/leaders/[address]`: probation / hard-to-copy badges, metric strip, paper copies table (declared vs paper entry, drift, cost, outcome, R), track record, every plan with its evidence checks; Discover → Profile; Mandate toggle | |
+
+Fix found by the live test: Flash market quotes report `estimatedFeeNotional: "0"` while $100
+buys $99.83 of WETH. `executionMetrics.costRatio` is now max(reported fee, value lost) ÷
+size (`costNotional` added), so the execution-cost budget no longer passes market orders as
+free. Preflight shows "cost (reported fees, rest inside the price)".
+
+Tests: `lib/shadow.test.ts` (entry and default-mandate reasons incl. stale levels; limit
+waits, enters on touch, or never; target / stop / both-in-one-candle / mark / expiry / candles
+before entry ignored; probation and contradiction; hard to copy; policy; through the store:
+3 quote-entered, candle-settled copies chain 6 events, the log verifies, the leader
+graduates and the follower's held copies are released). Live: a plan at today's levels is
+paper-entered on a real Flash quote and marked on real GeckoTerminal candles. 134 unit,
+8 live, e2e 25/25 (Case 5: paper entry at +40 bps / 0.18 % cost, probation reported, leader
+page renders with paper rows and the contradicted plan).

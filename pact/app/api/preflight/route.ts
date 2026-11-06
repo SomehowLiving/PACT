@@ -89,7 +89,7 @@ export async function GET(req: Request) {
       "cost",
       "Execution cost within budget",
       Number.isFinite(cost) && cost <= budget ? "ok" : "fail",
-      `fees $${Number(m.feeNotional).toFixed(3)} = ${(cost * 100).toFixed(2)}% of $${qty} (budget ${(budget * 100).toFixed(1)}%)`,
+      `cost $${Number(m.costNotional ?? m.feeNotional).toFixed(3)} (reported fees $${Number(m.feeNotional ?? 0).toFixed(3)}, rest inside the price) = ${(cost * 100).toFixed(2)}% of $${qty} (budget ${(budget * 100).toFixed(1)}%)`,
     );
     const entry = verifySigning({
       chain: "base",

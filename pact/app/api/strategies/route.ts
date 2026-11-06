@@ -1,3 +1,4 @@
+import { runShadowEntry } from "@/lib/shadow-run";
 import { requireOwner } from "@/lib/session";
 import { addStrategy, evidenceTxIndex, proposeToAll, setLeaderEvidence, snapshot } from "@/lib/store";
 import { normalizeTxHashes, verifyLeader } from "@/lib/leader-verify";
@@ -187,5 +188,8 @@ export async function POST(req: Request) {
     await setLeaderEvidence(strategy.id, evidence);
   }
   const copies = await proposeToAll(strategy.id);
+  // PACT's own paper copy (quotes only). A failed quote leaves the plan without one; the leader
+  // page retries.
+  await runShadowEntry(strategy).catch(() => undefined);
   return Response.json({ strategy, copies });
 }

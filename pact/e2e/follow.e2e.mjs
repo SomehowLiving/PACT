@@ -420,6 +420,29 @@ try {
     const record = await api(`/api/leaders/${LEADER}`);
     check("the leader's record counts the contradiction", record.json?.record?.evidence?.MISMATCH >= 1, JSON.stringify(record.json?.record?.evidence));
   }
+
+  // ---------- Case 5: paper copies and probation ----------
+  console.log("\n# Case 5: PACT paper-copies a new plan with a real Flash quote");
+  {
+    const pub = await publish({ orderType: "twap", qty: "100", durationSeconds: 600, ...(await disciplinedPlan()) });
+    const shadow = pub.json.strategy.shadow;
+    check(
+      "a plan at today's levels is paper-copied at Flash's all-in price",
+      shadow?.status === "OPEN" && shadow.sizeUsd === 100 && Math.abs(shadow.entryDriftBps) < 150,
+      shadow ? `entry $${shadow.entryPrice.toFixed(2)}, drift ${shadow.entryDriftBps.toFixed(0)} bps, cost ${(shadow.costRatio * 100).toFixed(2)}%` : "no paper copy",
+    );
+    const rec = await api(`/api/leaders/${LEADER}`);
+    const s = rec.json?.record?.shadow;
+    check("a leader with no settled paper copies is on probation", s?.probation === "PROBATION" && s.copies >= 1, s ? `${s.copies} copies, ${s.probationReason}` : "missing");
+    const ctx = await browser.newContext({ viewport: { width: 1440, height: 1400 } });
+    const page = await ctx.newPage();
+    await page.goto(`${BASE}/leaders/${LEADER}`, { waitUntil: "networkidle" });
+    await page.getByText("on probation").first().waitFor({ timeout: 20000 });
+    const rows = await page.locator("table tbody tr").count();
+    check("the leader page shows probation, paper copies and evidence", rows >= 1 && (await page.getByText("contradicted").count()) > 0, `${rows} paper rows`);
+    await page.screenshot({ path: join(OUT, "7-leader-page.png"), fullPage: true });
+    await ctx.close();
+  }
 } finally {
   await browser.close();
 }

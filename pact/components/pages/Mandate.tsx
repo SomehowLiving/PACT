@@ -459,6 +459,12 @@ function ExitSection({ draft, errors, patch }: SectionProps) {
             </select>
           </label>
         ) : null}
+        <Toggle
+          checked={draft.requireGraduatedLeader ?? false}
+          onChange={(v) => patch({ requireGraduatedLeader: v })}
+          label="Copy only leaders who have passed probation"
+          help="PACT paper-copies every new plan with real Flash quotes and no signature. A leader passes once 3 paper copies have settled and none of their plans is contradicted."
+        />
       </div>
       <p className="mt-4 text-[11.5px] text-mute">Exit mode (Flash TP/SL bracket or manual) is set per leader under Leaders & sizing.</p>
     </Section>

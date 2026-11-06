@@ -396,6 +396,9 @@ export function Discover() {
               actions={
                 <>
                   {selected.isDemo ? <LayerTag layer="demo" /> : null}
+                  <Link className="btn" href={`/leaders/${selected.leader}`} title="Evidence, paper copies and copiers' results">
+                    Profile
+                  </Link>
                   <FollowButton actions={actions} leader={selected.leader} compact onOpen={openDrawer} />
                 </>
               }
