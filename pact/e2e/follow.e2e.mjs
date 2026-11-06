@@ -506,6 +506,36 @@ try {
     await s7.page.screenshot({ path: join(OUT, "8-arc-review.png") });
     await s7.ctx.close();
   }
+
+  // ---------- Case 8: Autopilot session key ----------
+  console.log("\n# Case 8: Autopilot signs a real copy with a scoped session key (dry run until live on chain)");
+  {
+    const h = privateKeyToAccount(generatePrivateKey());
+    const anon = await api("/api/autopilot", { follower: h.address, hours: 24, maxPerOrderUsd: 50, maxDailyUsd: 200 });
+    check("creating a session without the wallet's sign-in is refused", anon.status === 401, `status ${anon.status}`);
+    const cookie = await signInNode(h);
+    const current = (await api(`/api/policy?follower=${h.address}`)).json.policy;
+    await api("/api/policy", { ...current, follows: [LEADER], automationMode: "AUTOPILOT" }, cookie);
+    const created = await api("/api/autopilot", { follower: h.address, chain: "base", hours: 24, maxPerOrderUsd: 50, maxDailyUsd: 200 }, cookie);
+    const grant = created.json?.grant;
+    check(
+      "a session is created with a fresh key and an onchain scope",
+      created.status === 200 && /^0x[0-9a-fA-F]{40}$/.test(grant?.sessionKey ?? "") && grant?.scope?.maxPerOrder?.[0] === "50000000",
+      `${grant?.status} · key ${grant?.sessionKey?.slice(0, 10)} · ${created.json?.setup?.length} setup calls`,
+    );
+    const listed = await api(`/api/autopilot?follower=${h.address}`);
+    check("the session key itself is never returned", !JSON.stringify(listed.json).includes("encryptedKey") && !JSON.stringify(created.json).includes("encryptedKey"));
+
+    const pub = await publish({ orderType: "twap", qty: "100", durationSeconds: 600, ...(await disciplinedPlan()) });
+    const run = (pub.json.autopilot ?? []).find((r) => r.proposalId && pub.json.copies.some((c) => c.proposal.id === r.proposalId && c.proposal.follower.toLowerCase() === h.address.toLowerCase()));
+    check(
+      "Autopilot quoted, passed policy and the guard, and signed with the session key",
+      run?.outcome === "DRY_RUN" && run.signatures?.some((s) => s.kind === "order"),
+      run ? `${run.outcome} · ${run.reasons.join(", ")} · signed ${run.signatures?.map((s) => s.kind).join(", ")}` : JSON.stringify(pub.json.autopilot)?.slice(0, 200),
+    );
+    const trail = await api(`/api/evidence?thread=${encodeURIComponent(`proposal:${run?.proposalId}`)}`);
+    check("the Autopilot run is in the evidence chain", (trail.json?.events ?? []).some((e) => e.kind === "autopilot.run") && trail.json?.verification?.ok, (trail.json?.events ?? []).map((e) => e.kind).join(" → "));
+  }
 } finally {
   await browser.close();
 }

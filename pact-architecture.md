@@ -217,7 +217,7 @@ The only component that writes to Flash. Stateless steps, each idempotent:
 | Mode | Signer | Enforcement | Status |
 | --- | --- | --- | --- |
 | Review | follower wallet (EOA, or ERC-1271 smart wallet) | the follower reads the guard report | Built |
-| Autopilot | session key on a follower-owned EIP-7702 Kernel account | validator checks every signed field onchain; price bound by Flash's engine and disclosed | Planned (after Flash Q4) |
+| Autopilot | session key for the follower's PACT wallet (`PactSessionAccount`: an EIP-1167 clone owned by their EOA, or their EOA via EIP-7702) | the account's `isValidSignature` rebuilds the Flash order / Permit2 digest from the full payload and enforces swapper = recipient = wallet, token allow-list, per-order and permit caps, expiry, revocation; Flash validates EIP-1271 at submit and onchain (Flash docs) | Built and tested (Foundry, Base-fork Permit2, anvil, e2e dry run); not yet deployed |
 
 Never: a pasted private key, a server-held key, or a Safe-based session (its 1271 handler
 cannot delegate).

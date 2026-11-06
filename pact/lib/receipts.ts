@@ -25,7 +25,7 @@ export async function refreshReceipt(receipt: Receipt): Promise<RefreshResult> {
 
   let detail: FlashOrderDetail;
   try {
-    detail = await getOrder(receipt.flashOrderId, receipt.follower);
+    detail = await getOrder(receipt.flashOrderId, receipt.funder ?? receipt.follower);
   } catch (e) {
     const status = (e as { status?: number }).status;
     if (status === 404 && Date.now() - Date.parse(receipt.createdAt) < JUST_SUBMITTED_MS) {
@@ -44,7 +44,7 @@ export async function refreshReceipt(receipt: Receipt): Promise<RefreshResult> {
   let exitRead = !protection?.bracketOrderId;
   if (protection?.bracketOrderId) {
     try {
-      const exit = await getOrder(protection.bracketOrderId, receipt.follower);
+      const exit = await getOrder(protection.bracketOrderId, receipt.funder ?? receipt.follower);
       protectionOrder = exit.order;
       exitFills = exit.fills ?? [];
       exitRead = true;

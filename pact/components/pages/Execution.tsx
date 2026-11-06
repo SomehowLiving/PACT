@@ -381,6 +381,9 @@ const EVENT_LABEL: Record<EvidenceEvent["kind"], string> = {
   "leader.evidence": "Leader evidence checked",
   "shadow.entry": "Paper copy entered",
   "shadow.settled": "Paper copy settled",
+  "autopilot.granted": "Autopilot session granted",
+  "autopilot.revoked": "Autopilot session revoked",
+  "autopilot.run": "Autopilot run",
 };
 
 function eventDetail(e: EvidenceEvent) {

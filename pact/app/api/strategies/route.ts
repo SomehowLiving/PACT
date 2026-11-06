@@ -1,3 +1,4 @@
+import { runAutopilotFor } from "@/lib/autopilot";
 import { runShadowEntry } from "@/lib/shadow-run";
 import { requireOwner } from "@/lib/session";
 import { addStrategy, evidenceTxIndex, proposeToAll, setLeaderEvidence, snapshot } from "@/lib/store";
@@ -191,5 +192,7 @@ export async function POST(req: Request) {
   // PACT's own paper copy (quotes only). A failed quote leaves the plan without one; the leader
   // page retries.
   await runShadowEntry(strategy).catch(() => undefined);
-  return Response.json({ strategy, copies });
+  // Followers on Autopilot: their scoped session key handles the copy (dry run until live).
+  const autopilot = await runAutopilotFor(copies.map((c) => c.proposal.id)).catch(() => []);
+  return Response.json({ strategy, copies, autopilot });
 }

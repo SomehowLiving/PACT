@@ -512,3 +512,75 @@ gives a proportional follower 0.1 × the usual $100, MODIFY SCALE, while a fixed
 keeps $20). Live: Chainlink, the chart and a Flash quote agree within bps. 140 unit, 9 live,
 e2e 29/29 (Case 6: the follower's real quote recorded Flash +5 bps and chart +9 bps vs
 Chainlink; a 4× plan raised the alert and the copy was $25 instead of $100).
+
+## Arc validation (Nov 6, 2026)
+
+Live: Flash quotes WETH/USDC on Arc (5042) for market and TWAP; Flash uses the same verifying
+contract and Permit2 there, and the wallet guard passes Flash's real Arc entry and protection
+payloads with no failures. e2e Case 7: a follower opts into Arc, the leader publishes an Arc
+plan, the browser guard passes, the wallet signs both permits and both orders on chain 5042,
+and Flash verifies the signatures and refuses only on balance. A funded Arc fill is still to
+be recorded.
+
+## Phase 5: Autopilot session key (Nov 6, 2026)
+
+Unblocked by Flash's own docs (FAQ, EVM overview): Flash accepts EIP-1271 smart-wallet
+signatures on every EVM chain, validates with `isValidSignature` whenever the funder has code
+(including an EIP-7702 delegation), and the settlement contract checks again onchain at
+execution. So a session key works if the follower's account accepts it.
+
+ERC-1271 only passes a digest, so a generic session module cannot see what a key is signing.
+**`contracts/src/PactSessionAccount.sol`** therefore takes the full payload inside the
+signature, rebuilds the exact EIP-712 digest, and only then checks the scope:
+
+| Payload | Onchain rule |
+| --- | --- |
+| FlashOrder (`DefinitiveFlashAllowance` v1) | swapper = recipient = the wallet; spent token allow-listed and ≤ per-order cap; received token allow-listed; deadline ≤ session expiry |
+| Permit2 PermitSingle | spender = Flash settlement; token allow-listed and ≤ permit cap; expiration and sigDeadline ≤ expiry + 24 h (Flash's own buffer) |
+| Flash cancel message | accepted (only reduces exposure) |
+| any session signature | key matches, session granted and not revoked, `block.timestamp` ≤ expiry |
+| 65-byte ECDSA by the owner | accepted: review-mode signing is unchanged |
+
+Two modes: a **PACT wallet** (EIP-1167 clone from `PactAccountFactory`, owned by the
+follower's EOA, address predictable; works with any browser wallet) or the EOA itself via
+**EIP-7702**. Only the factory can set an owner, and only on a fresh clone, so nobody can
+claim a 7702 account. `execute` (approvals, withdrawals) and grant/revoke are owner-only.
+
+PACT side (L6): `lib/session-account.ts` (ABIs, signature encoding identical to the
+contract's `abi.decode`, CREATE2 address prediction, a TypeScript mirror of the scope rules
+used as a pre-check); `lib/autopilot.ts` (grants in a separate server-only file, session key
+generated server-side and stored AES-256-GCM-encrypted, never returned; `runAutopilot` runs
+the same `prepareCopyQuote` → policy → guard path as review, funded by the PACT wallet, then
+the scope pre-check, then signs order, permit, protection and protection permit with the
+session key; daily and per-order caps; every grant, revoke and run is chained as evidence).
+Quote and submit were extracted into `lib/copy-quote.ts` and `lib/submit-order.ts`, shared by
+both flows; receipts record `funder` and `signedBy`, and status reads and the order stream
+follow the funder. Autopilot **submits only when the session is live on chain and
+`PACT_AUTOPILOT_SUBMIT=1`**; otherwise it signs, records a dry run and stops.
+
+UI: Wallet → "Autopilot session key" (create with expiry and caps, status from chain, the
+one-time setup calls sent from the wallet, turn on/off, revoke with the onchain call);
+Mandate → Automation has an Autopilot option; Overview shows the mode.
+
+Tests:
+- Foundry (`cd contracts && forge test`): 13 tests — digest equals viem's for a real Flash
+  Base payload; owner ECDSA; in-scope order; other recipient, over cap, other tokens, payload
+  that does not match the digest, deadline beyond the session, wrong key, revoke, re-grant,
+  expiry; permit spender, cap, Flash's 24 h buffer; cancel only; owner-only grant/revoke;
+  nobody can claim a 7702 account; smart-wallet mode end to end.
+- Base fork (`PACT_FORK=true forge test --match-contract Fork`): the real Permit2 on Base
+  accepts a session-signed permit through the account and refuses one over the cap.
+- anvil (`PACT_ANVIL=1 npx vitest run lib/session-account.anvil.test.ts`): the compiled
+  contracts accept TypeScript-made session signatures in scope and reject theft-shaped and
+  over-cap ones; address prediction equals the factory's.
+- unit: `lib/autopilot.test.ts` (key encrypted and never exposed; signatures recover to the
+  session key; out-of-scope refused; dry run until live; skips with reasons). 144 unit.
+- e2e 40/40, Case 8: on real Flash quotes funded by the PACT wallet address, Autopilot passed
+  policy and the guard and session-signed all four payloads; a live permit from Flash first
+  exposed the sigDeadline rule above, fixed in both the contract and the mirror.
+
+Not done: deploying the factory on Base (needs a funded deployer:
+`forge script script/Deploy.s.sol --rpc-url base --broadcast`), a funded PACT wallet, and a
+live session-signed fill. Cancelling an Autopilot order from the review page still asks the
+EOA to sign; for a PACT wallet the cancel must be the owner's or session's 1271 signature.
+Setup: `cd contracts && forge install foundry-rs/forge-std --no-git` (lib is not committed).

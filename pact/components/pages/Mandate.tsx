@@ -488,10 +488,15 @@ function AutomationSection({ draft, patch }: Pick<SectionProps, "draft" | "patch
       title: "PACT Assist",
       body: "Deterministic policy orchestration: scans plans and queues allowed ones for your review. It holds no key and never quotes, signs, submits, cancels or edits your mandate.",
     },
+    {
+      value: "AUTOPILOT",
+      title: "Autopilot",
+      body: "A session key signs allowed copies for your PACT wallet. Its scope (tokens, per-order and permit caps, expiry, payout to your wallet) is enforced on chain; every policy check still runs first. Set it up under Wallet.",
+    },
   ];
   return (
     <Section id="automation" index={5} title="Automation" intro="How much help you want. Execution authority always stays with your wallet.">
-      <div className="grid gap-3 sm:grid-cols-2" role="radiogroup">
+      <div className="grid gap-3 sm:grid-cols-3" role="radiogroup">
         {options.map((o) => (
           <button
             key={o.value}
@@ -510,8 +515,8 @@ function AutomationSection({ draft, patch }: Pick<SectionProps, "draft" | "patch
         ))}
       </div>
       <div className="mt-3 grid gap-3 sm:grid-cols-2">
-        <Planned title="Autopilot">
-          Needs a follower-owned smart account with a revocable, expiry-bound session key scoped to Flash, chain, assets, sides and limits, plus a live mainnet test. Never a pasted private key.
+        <Planned title="Autopilot live run">
+          Built and tested (contracts, Base-fork Permit2, signing). Still to record: deploy the factory on Base, set up a funded PACT wallet, and a live session-signed fill.
         </Planned>
         <Planned title="World ID step-up">
           Optional human confirmation before enabling a material Autopilot mandate. Not wallet authorization, KYC or leader-quality proof.

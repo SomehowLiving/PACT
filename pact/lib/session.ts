@@ -55,6 +55,11 @@ function secret(): Buffer {
 const b64 = (v: Buffer | string) => Buffer.from(v).toString("base64url");
 const mac = (payload: string) => createHmac("sha256", secret()).update(payload).digest();
 
+/** A 32-byte key for one purpose, derived from the server secret (e.g. encrypting session keys). */
+export function deriveKey(label: string): Buffer {
+  return createHmac("sha256", secret()).update(`pact:${label}`).digest();
+}
+
 export type Session = { address: Address; expiresAt: number };
 
 export function issueToken(address: string, nowMs = Date.now()): { token: string; session: Session } {

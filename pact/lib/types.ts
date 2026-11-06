@@ -83,7 +83,7 @@ export type LeaderEvidence = {
 };
 export type CopySizingMode = "PROPORTIONAL" | "FIXED" | "STOP_RISK";
 /** Review requires one signature per order; Assist may prepare recommendations but never signs. */
-export type AutomationMode = "REVIEW" | "ASSIST";
+export type AutomationMode = "REVIEW" | "ASSIST" | "AUTOPILOT";
 export type FollowerExitMode = "FOLLOWER_BRACKET" | "MANUAL";
 export type DemoCase =
   | "CORE_TWAP_COPY"
@@ -297,6 +297,10 @@ export type Receipt = {
   completedFillCount?: number;
   twapBucketCount?: number;
   follower: `0x${string}`;
+  /** The address that signed and paid when it is not the follower's EOA (their PACT wallet). */
+  funder?: `0x${string}`;
+  /** Who signed: the follower in their wallet, or Autopilot's scoped session key. */
+  signedBy?: "WALLET" | "SESSION_KEY";
   decision: Decision;
   quoteId?: string;
   flashOrderId?: string;
@@ -389,6 +393,8 @@ export type StoredQuote = {
   costRatio?: string;
   /** R11: oracle, chart and Flash prices at quote time. */
   reference?: import("./signals").ReferenceCheck;
+  /** Who signs and pays: the follower's EOA (review) or their PACT wallet (Autopilot). */
+  funder?: `0x${string}`;
   attachedBracket?: {
     bracket: AttachedBracket;
     salt?: string;

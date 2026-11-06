@@ -26,7 +26,10 @@ export type EvidenceKind =
   | "order.cancel_requested"
   | "leader.evidence"
   | "shadow.entry"
-  | "shadow.settled";
+  | "shadow.settled"
+  | "autopilot.granted"
+  | "autopilot.revoked"
+  | "autopilot.run";
 
 export type EvidenceRefs = {
   proposalId?: string;

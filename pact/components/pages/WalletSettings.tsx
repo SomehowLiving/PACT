@@ -1,5 +1,6 @@
 "use client";
 
+import { AutopilotPanel } from "@/components/AutopilotPanel";
 import { Connect } from "@/components/Connect";
 import { useDeskContext } from "@/components/DeskContext";
 import { KV, LayerTag, PageHeader, Panel, Planned, StatusBadge, type Tone } from "@/components/ui";
@@ -159,10 +160,11 @@ export function WalletSettings() {
         </Panel>
       </div>
 
-      <div className="mt-4 grid gap-3 md:grid-cols-3">
-        <Planned title="Smart-account session key">
-          Revocable, expiry-bound authority scoped to Flash contracts, assets, sides and limits. Required before Autopilot exists.
-        </Planned>
+      <div className="mt-4">
+        <AutopilotPanel />
+      </div>
+
+      <div className="mt-4 grid gap-3 md:grid-cols-2">
         <Planned title="World ID">
           Unique-human eligibility for a public leader directory, or a step-up before a material Autopilot mandate. Never wallet authorization.
         </Planned>

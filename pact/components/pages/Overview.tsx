@@ -256,7 +256,16 @@ export function Overview() {
             <KV k="Per order / daily" v={`${usd(policy.maxNotionalUsd)} / ${usd(policy.maxDailyUsd)}`} />
             <KV k="Entry drift bound" v={`${(Number(policy.maxEntryDrift) * 100).toFixed(2)}%`} />
             <KV k="Quote impact limit" v={`${(Number(policy.maxPriceImpact) * 100).toFixed(2)}%`} />
-            <KV k="Agent mode" v={policy.automationMode === "ASSIST" ? "Assist · queues for review" : "Review · self-sign each order"} />
+            <KV
+              k="Agent mode"
+              v={
+                policy.automationMode === "AUTOPILOT"
+                  ? "Autopilot · scoped session key signs"
+                  : policy.automationMode === "ASSIST"
+                    ? "Assist · queues for review"
+                    : "Review · self-sign each order"
+              }
+            />
           </dl>
           {cap ? (
             <div className="mt-4 space-y-3">

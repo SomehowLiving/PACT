@@ -46,6 +46,13 @@ function liveReceipts(follower?: string): Receipt[] {
   );
 }
 
+/** Flash streams by funder: the follower's EOA, or their PACT wallet for Autopilot orders. */
+const funderOf = (r: Receipt) => (r.funder ?? r.follower).toLowerCase();
+
+function liveForFunder(funder?: string): Receipt[] {
+  return snapshot().receipts.filter((r) => r.flashOrderId && stillLive(r) && (!funder || funderOf(r) === funder.toLowerCase()));
+}
+
 /** The receipt a stream frame is about, if PACT placed it. */
 export function receiptForOrder(order: FlashOrderUpdate, receipts: Receipt[]): Receipt | undefined {
   return receipts.find(
@@ -86,7 +93,7 @@ function onOrders(_scope: string, orders: FlashOrderUpdate[]) {
 function onSnapshot(scope: string, orders: FlashOrderUpdate[]) {
   // A snapshot only lists open orders, so it cannot show what closed during a gap: resync
   // every live receipt in scope from REST.
-  for (const r of liveReceipts(scope === "*" ? undefined : scope)) scheduleRefresh(r.proposalId);
+  for (const r of liveForFunder(scope === "*" ? undefined : scope)) scheduleRefresh(r.proposalId);
   onOrders(scope, orders);
 }
 
@@ -95,7 +102,7 @@ function sweep() {
   const { stream } = t();
   if (!stream) return;
   for (const scope of stream.scopes()) {
-    if (!liveReceipts(scope === "*" ? undefined : scope).length) stream.close(scope);
+    if (!liveForFunder(scope === "*" ? undefined : scope).length) stream.close(scope);
   }
 }
 
@@ -116,21 +123,25 @@ function ensureStream(key: string, opts?: Partial<StreamOptions>): OrderStream {
 export function trackFollower(follower: string, opts?: Partial<StreamOptions>): TrackingInfo {
   const key = process.env.FLASH_API_KEY;
   if (!key || process.env.PACT_ORDER_STREAM === "off") return { mode: "off", pollMs: 4_000 };
-  if (!liveReceipts(follower).length) {
+  const live = liveReceipts(follower);
+  if (!live.length) {
     sweep();
     return { mode: "off", pollMs: 4_000 };
   }
   const stream = ensureStream(key, opts);
-  const scope = orgWide(key) ? "*" : follower.toLowerCase();
-  if (!stream.scopes().includes(scope)) {
+  const scopes = orgWide(key) ? ["*"] : [...new Set(live.map(funderOf))];
+  for (const scope of scopes) {
+    if (stream.scopes().includes(scope)) continue;
     if (scope !== "*" && stream.scopes().length >= MAX_FUNDER_STREAMS) {
       return { mode: "polling", detail: "stream slots in use", pollMs: 4_000 };
     }
     stream.open(scope);
   }
-  const s = stream.status(scope);
-  const healthy = stream.healthy(scope);
-  return { mode: "stream", status: s?.status, detail: s?.detail, pollMs: healthy ? 30_000 : 4_000 };
+  // Healthy only when every funder this follower uses is streaming.
+  const statuses = scopes.map((scope) => stream.status(scope));
+  const healthy = scopes.every((scope) => stream.healthy(scope));
+  const worst = statuses.find((x) => x?.status !== "live") ?? statuses[0];
+  return { mode: "stream", status: worst?.status, detail: worst?.detail, pollMs: healthy ? 30_000 : 4_000 };
 }
 
 export function trackerStats() {
