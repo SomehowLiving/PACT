@@ -710,3 +710,18 @@ authority and never a skill signal.
 Tests: `lib/world.test.ts` (7: config and key never exposed, request signing, the World
 call, signal/action/environment refusal before calling World, World rejection, one human
 one address with the evidence event, the policy rule). UI e2e 29 checks.
+
+### World ID tested end to end on World's staging network (Nov 6, 2026)
+
+`e2e/world.e2e.mjs` (`npm run e2e:world`, server started with `WORLD_ENV=staging`): 16/16.
+World's simulator (`complete_test_request`) stands in for World App and generates a real
+World ID 4.0 staging proof; everything else is the real path. Checked: the RP signature needs
+the leader's session; the Publish page shows the QR code; World verified the proof and PACT
+bound it; the panel and the profile show the badge; the evidence event carries only a
+nullifier digest; a proof bound to another wallet is refused (`WORLD_SIGNAL_MISMATCH`);
+verifying for a wallet you are not signed in as is refused (403); the same human backing a
+second leader address is refused (409 `HUMAN_ALREADY_BOUND`, also seen across runs); with
+"verified humans only" a follower's copy of the verified leader is not held, the unverified
+leader's is held (`LEADER_NOT_VERIFIED_HUMAN`). Before this, World's production verify
+endpoint recognised the RP id and the bridge accepted a production request signed with the
+RP key. A production proof from a real World App has not been run.
