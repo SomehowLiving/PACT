@@ -1,0 +1,14 @@
+# Never upload secrets, local state or build/test output.
+.env
+.env.*
+!.env.example
+.data
+.next
+.next-*
+e2e/out
+e2e/.shot*.mjs
+contracts/out
+contracts/cache
+contracts/lib
+contracts/broadcast
+node_modules

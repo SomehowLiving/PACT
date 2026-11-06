@@ -1,6 +1,7 @@
 import { trackFollower } from "@/lib/tracker";
 import { blockedNotional, dailySpent, leaderDailyRealizedLosses, snapshot } from "@/lib/store";
 import { verifiedLeaders } from "@/lib/world";
+import { autoseedIfEmpty } from "@/lib/demo-seed";
 import { NextRequest } from "next/server";
 
 export const dynamic = "force-dynamic";
@@ -9,6 +10,7 @@ export async function GET(req: NextRequest) {
   const follower = req.nextUrl.searchParams.get("follower") as
     | `0x${string}`
     | null;
+  await autoseedIfEmpty();
   const state = snapshot();
   return Response.json({
     ...state,

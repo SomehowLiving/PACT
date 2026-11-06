@@ -1,4 +1,4 @@
-import { ethUsdReference } from "@/lib/oracle";
+import { demoPrice } from "@/lib/demo-seed";
 import { seedDemo } from "@/lib/store";
 
 export const dynamic = "force-dynamic";
@@ -7,10 +7,7 @@ export const dynamic = "force-dynamic";
 export async function POST() {
   // DEMO plans are priced off today's market (Chainlink ETH/USD on Base); if it is unreachable,
   // they fall back to fixed levels and still work.
-  const price = await Promise.race([
-    ethUsdReference().then((r) => r.price).catch(() => undefined),
-    new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 4000)),
-  ]);
+  const price = await demoPrice();
   const seeded = await seedDemo({ price });
   return Response.json({
     ok: true,
