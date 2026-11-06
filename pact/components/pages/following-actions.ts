@@ -8,7 +8,8 @@ import { apiFetch } from "@/lib/api";
 /* Follow / unfollow / pause actions shared by Discover and Following.
    Every change is a follower policy save; PACT re-decides queued plans on save. */
 
-export const MAX_LEADERS = 3;
+export { MAX_LEADERS } from "@/lib/constants";
+import { MAX_LEADERS } from "@/lib/constants";
 
 const same = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
 

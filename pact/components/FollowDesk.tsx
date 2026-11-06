@@ -1,5 +1,6 @@
 "use client";
 
+import { MAX_LEADERS } from "@/lib/constants";
 import { Gauge } from "@/components/Gauge";
 import { CopyActionPill } from "@/components/CopyActionPill";
 import { LeaderPanel } from "@/components/LeaderPanel";
@@ -1550,13 +1551,13 @@ export function PolicyEditor({
       {leaders.length ? (
         <div id="leader-mandates" className="mt-4">
           <div className="text-[11px] text-mute">
-            choose leaders {draft.follows?.length ? `· ${draft.follows.length}/3 selected` : "(up to 3)"}
+            choose leaders {draft.follows?.length ? `· ${draft.follows.length}/${MAX_LEADERS} selected` : `(up to ${MAX_LEADERS})`}
           </div>
           <div className="mt-1 flex flex-wrap gap-1.5">
             {leaders.map((l) => {
               const list = draft.follows ?? [];
               const on = list.some((x) => x.toLowerCase() === l.toLowerCase());
-              const capped = !on && list.length >= 3;
+              const capped = !on && list.length >= MAX_LEADERS;
               return (
                 <button
                   key={l}

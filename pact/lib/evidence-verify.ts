@@ -29,6 +29,7 @@ export type EvidenceKind =
   | "shadow.entry"
   | "shadow.settled"
   | "autopilot.granted"
+  | "autopilot.human_approved"
   | "autopilot.revoked"
   | "autopilot.run";
 

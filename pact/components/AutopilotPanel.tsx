@@ -3,6 +3,8 @@
 import { useDeskContext } from "@/components/DeskContext";
 import { Addr, KV, Panel, StatusBadge, type Tone } from "@/components/ui";
 import { apiFetch } from "@/lib/api";
+import { useWorld, useWorldProof, WorldPrompt } from "@/components/WorldVerify";
+import { autopilotSignal } from "@/lib/world-signal";
 import { useCallback, useEffect, useState } from "react";
 import { useSendTransaction } from "wagmi";
 
@@ -46,6 +48,9 @@ export function AutopilotPanel() {
   const [daily, setDaily] = useState("100");
   const [busy, setBusy] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const { config: worldConfig } = useWorld();
+  const world = useWorldProof(worldConfig);
+  const needsHuman = !!policy.requireHumanForAutopilot;
 
   const load = useCallback(async () => {
     if (!address) return;
@@ -67,13 +72,21 @@ export function AutopilotPanel() {
     setBusy("create");
     setMessage(null);
     try {
+      const limits = { chain: "base", hours: Number(hours), maxPerOrderUsd: Number(perOrder), maxDailyUsd: Number(daily) };
+      // Mandate step-up: approve these exact limits as a human before the key exists.
+      let worldProof: unknown;
+      if (needsHuman) {
+        worldProof = await world.prove("autopilot", autopilotSignal(address, limits), `Approve Autopilot: $${limits.maxPerOrderUsd}/order, $${limits.maxDailyUsd}/day for ${limits.hours}h`);
+        if (!worldProof) return;
+      }
       const res = await apiFetch("/api/autopilot", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ follower: address, chain: "base", hours: Number(hours), maxPerOrderUsd: Number(perOrder), maxDailyUsd: Number(daily) }),
+        body: JSON.stringify({ follower: address, ...limits, worldProof }),
       });
       const json = await res.json();
-      setMessage(res.ok ? "Session created. Its key never leaves PACT's server and is stored encrypted." : json.error);
+      if (needsHuman) world.finish(res.ok, json.error);
+      setMessage(res.ok ? `Session created${needsHuman ? " after your World ID approval" : ""}. Its key never leaves PACT's server and is stored encrypted.` : json.error);
       await load();
     } finally {
       setBusy(null);
@@ -230,10 +243,16 @@ export function AutopilotPanel() {
             </div>
           </label>
           <button type="button" className="btn btn-primary" disabled={!!busy} onClick={() => void create()}>
-            {busy === "create" ? "Creating…" : "Create session"}
+            {busy === "create" ? (world.step === "scan" ? "Waiting for World App…" : "Creating…") : needsHuman ? "Approve with World ID & create" : "Create session"}
           </button>
         </div>
       )}
+      {world.step === "scan" ? (
+        <div className="mt-3">
+          <WorldPrompt qr={world.qr} link={world.link} environment={world.environment} text="Approve these Autopilot limits in World App. The approval is bound to exactly these limits." />
+        </div>
+      ) : null}
+      {world.error ? <p className="mt-2 text-[12px] text-bad">{world.error}</p> : null}
       {!grant && canAct ? (
         <p className="mt-2 text-[11px] text-mute">
           The session must outlast your copies&apos; protection (stop and target, 24 h by default): its signatures are checked again on chain when a stop fires, so Autopilot will not sign a protective order that ends after the session.

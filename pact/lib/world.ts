@@ -16,6 +16,10 @@ import { appendEvidence } from "@/lib/evidence";
  */
 
 export const LEADER_ACTION = "pact-verified-leader";
+/** A fresh human approval before an Autopilot session key is created (mandate step-up). */
+export const AUTOPILOT_ACTION = "pact-autopilot-stepup";
+export type WorldPurpose = "leader" | "autopilot";
+const ACTIONS: Record<WorldPurpose, string> = { leader: LEADER_ACTION, autopilot: AUTOPILOT_ACTION };
 const VERIFY_URL = "https://developer.world.org/api/v4/verify";
 
 export type WorldEnvironment = "production" | "staging";
@@ -36,18 +40,20 @@ export function worldConfig() {
 /** What the browser may know: never the signing key. */
 export function publicWorldConfig() {
   const c = worldConfig();
-  return { enabled: c.enabled, app_id: c.appId || undefined, rp_id: c.rpId || undefined, environment: c.environment, action: LEADER_ACTION, missing: c.missing };
+  return { enabled: c.enabled, app_id: c.appId || undefined, rp_id: c.rpId || undefined, environment: c.environment, action: LEADER_ACTION, actions: ACTIONS, missing: c.missing };
 }
 
-/** The signal a leader proof is bound to: their address, lowercased. */
-export function leaderSignal(address: string) {
-  return address.toLowerCase();
-}
+export { autopilotSignal, leaderSignal } from "@/lib/world-signal";
+import { leaderSignal } from "@/lib/world-signal";
 
 export function signLeaderRequest() {
+  return signWorldRequest("leader");
+}
+
+export function signWorldRequest(purpose: WorldPurpose) {
   const c = worldConfig();
   if (!c.enabled) throw new WorldError("WORLD_NOT_CONFIGURED", `World ID is not configured: set ${c.missing.join(", ")}`);
-  const s = signRequest({ signingKeyHex: c.key, action: LEADER_ACTION, ttl: 300 });
+  const s = signRequest({ signingKeyHex: c.key, action: ACTIONS[purpose], ttl: 300 });
   return { sig: s.sig, nonce: s.nonce, created_at: s.createdAt, expires_at: s.expiresAt };
 }
 
@@ -82,16 +88,21 @@ export function normalizeNullifier(n: string) {
  * normalized nullifier. Fails closed on any mismatch.
  */
 export async function verifyLeaderProof(address: string, proof: WorldProof, fetchImpl: typeof fetch = fetch) {
+  return verifyWorldProof(LEADER_ACTION, leaderSignal(address), proof, fetchImpl);
+}
+
+/** PACT's checks (environment, action, signal) and then World's cryptographic verification. */
+export async function verifyWorldProof(action: string, signal: string, proof: WorldProof, fetchImpl: typeof fetch = fetch) {
   const c = worldConfig();
   if (!c.enabled) throw new WorldError("WORLD_NOT_CONFIGURED", `World ID is not configured: set ${c.missing.join(", ")}`);
   if (!proof || typeof proof !== "object") throw new WorldError("WORLD_PROOF_MISSING", "no World ID proof");
   if (proof.environment !== c.environment) throw new WorldError("WORLD_WRONG_ENVIRONMENT", `proof is from ${proof.environment ?? "an unknown"} environment`);
-  if (proof.action !== LEADER_ACTION) throw new WorldError("WORLD_WRONG_ACTION", "proof is for a different action");
+  if (proof.action !== action) throw new WorldError("WORLD_WRONG_ACTION", "proof is for a different action");
   const responses = proof.responses ?? [];
   if (!responses.length) throw new WorldError("WORLD_PROOF_MISSING", "proof has no responses");
-  const expected = hashSignal(leaderSignal(address));
+  const expected = hashSignal(signal);
   if (!responses.every((r) => sameField(r.signal_hash, expected))) {
-    throw new WorldError("WORLD_SIGNAL_MISMATCH", "proof is bound to a different wallet");
+    throw new WorldError("WORLD_SIGNAL_MISMATCH", "proof is bound to a different wallet or request");
   }
 
   const res = await fetchImpl(`${VERIFY_URL}/${c.rpId}`, {
@@ -114,7 +125,7 @@ export async function verifyLeaderProof(address: string, proof: WorldProof, fetc
 /* ── One human, one leader address ───────────────────────────────────── */
 
 type HumanRecord = { address: string; verifiedAt: string; protocol: string };
-type Humans = { version: 1; byNullifier: Record<string, HumanRecord> };
+type Humans = { version: 1; byNullifier: Record<string, HumanRecord>; approvers?: Record<string, { nullifier: string; firstAt: string; lastAt: string }> };
 
 function humansFile() {
   const store = process.env.PACT_STORE_FILE ?? join(process.cwd(), ".data", "store.json");
@@ -172,6 +183,28 @@ export function bindLeader(address: string, nullifier: string, protocol: string,
     action: LEADER_ACTION,
   });
   return { record, created: true };
+}
+
+/**
+ * Records a verified Autopilot approval. The first human to approve for a desk is its
+ * approver; a later approval from a different human is refused, so someone holding the
+ * session cookie cannot raise the limits with their own World ID.
+ */
+export function recordApproval(follower: string, nullifier: string, at = new Date().toISOString()) {
+  const addr = follower.toLowerCase();
+  const h = load();
+  const approvers = (h.approvers ??= {});
+  const existing = approvers[addr];
+  if (existing && existing.nullifier !== nullifier) {
+    throw new WorldError("DIFFERENT_HUMAN", "a different human approved this desk before", 403);
+  }
+  approvers[addr] = { nullifier, firstAt: existing?.firstAt ?? at, lastAt: at };
+  save(h);
+  return { first: !existing };
+}
+
+export function approverDigest(nullifier: string) {
+  return `0x${createHash("sha256").update(nullifier).digest("hex")}`;
 }
 
 /** Tests only. */

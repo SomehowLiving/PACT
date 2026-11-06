@@ -9,6 +9,9 @@ export const USDC =
 export const PAIR_KEY = `${WETH.toLowerCase()}:${USDC.toLowerCase()}`;
 export const ARC_PAIR_KEY = `${CHAINS.arc.weth.toLowerCase()}:${CHAINS.arc.usdc.toLowerCase()}`;
 
+/** Most leaders one follower can select. Each gets its own mandate and daily sleeve. */
+export const MAX_LEADERS = 10;
+
 export const FLASH_BASE = "https://flash.definitive.fi/v1";
 /** Flash's documented public playground key: fine for testing, shared with every other user. */
 export const PLAYGROUND_KEY_PREFIX = "dpka_513a2bd7";

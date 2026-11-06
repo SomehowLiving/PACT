@@ -749,3 +749,21 @@ titles. Fixed (frontend only):
 `e2e/ui.e2e.mjs` is 33 checks and now enforces: every page shows where you are in the header
 or rail, no destination is listed twice across header, rail and account menu, the rail shows
 the current workspace's sections, Settings tabs are links that back returns from.
+
+## Up to ten leaders, World ID Autopilot approval, full mock run (Nov 6, 2026)
+
+- **Up to 10 leaders per follower** (was 3): one constant, `MAX_LEADERS` in
+  `lib/constants.ts`, used by the policy API, the mandate editor, Following/Discover and the
+  classic desk. Each leader keeps its own mandate and daily sleeve; the portfolio caps
+  (daily budget, open plans, same-asset exposure) still apply on top.
+- **World ID approval for Autopilot** (mandate step-up, opt-in "Approve Autopilot with World
+  ID"): before PACT creates a session key, the follower approves its exact limits in World
+  App. The proof's signal is the follower plus the limits (`lib/world-signal.ts`, shared by
+  browser and server), so an approval for $25/order cannot be replayed for $2,500/order. The
+  first approving human becomes the desk's approver; a different human is refused. Recorded as
+  `autopilot.human_approved` in the mandate's evidence thread with a nullifier digest.
+
+Full mock run (no funds): typecheck, lint, 158 unit, 9 live Flash, 3 anvil, 14 Foundry and
+the Base-fork Permit2 test, follow e2e 45/45 (Flash quotes, wallet guard, signing, Flash
+answering on balance for Base and Arc, Autopilot dry run, six leaders), UI e2e 33/33, World
+e2e 22/22 on staging with World's simulator, production build.

@@ -1,5 +1,6 @@
 "use client";
 
+import { MAX_LEADERS } from "@/lib/constants";
 import { useDeskContext } from "@/components/DeskContext";
 import { LayerTag, LeaderTag, PageHeader, Panel, Planned, StatusBadge } from "@/components/ui";
 import { CHAIN_IDS } from "@/lib/chains";
@@ -68,7 +69,7 @@ function validate(p: Policy): Errors {
   if (!p.allowChains?.length) e.allowChains = "Select at least one chain.";
   if (!p.allowOrderTypes.length) e.allowOrderTypes = "Select at least one order type.";
   if (!p.allowSides.length) e.allowSides = "Select at least one side.";
-  if ((p.follows?.length ?? 0) > 3) e.follows = "At most three leaders.";
+  if ((p.follows?.length ?? 0) > MAX_LEADERS) e.follows = `At most ${MAX_LEADERS} leaders.`;
   for (const m of p.mandates ?? []) {
     const k = m.leader.toLowerCase();
     if (!(m.copyRatio > 0 && m.copyRatio <= 1)) e[`m:${k}:copyRatio`] = "Between 0% and 100%.";
@@ -477,6 +478,12 @@ function ExitSection({ draft, errors, patch }: SectionProps) {
           label="Copy only leaders verified as unique humans (World ID)"
           help="A leader proves with World ID that one unique human is behind their wallet, and one human can back only one leader address, so a leader cannot restart under a fresh wallet. It is not a measure of trading skill."
         />
+        <Toggle
+          checked={draft.requireHumanForAutopilot ?? false}
+          onChange={(v) => patch({ requireHumanForAutopilot: v })}
+          label="Approve Autopilot with World ID"
+          help="Before PACT creates an Autopilot session key, you approve its exact limits in World App. The first human to approve becomes this desk's approver; a different human is refused. It never signs a trade."
+        />
       </div>
       <p className="mt-4 text-[11.5px] text-mute">Exit mode (Flash TP/SL bracket or manual) is set per leader under Leaders & sizing.</p>
     </Section>
@@ -522,9 +529,7 @@ function AutomationSection({ draft, patch }: Pick<SectionProps, "draft" | "patch
         <Planned title="Autopilot live run">
           Built and tested (contracts, Base-fork Permit2, signing). Still to record: deploy the factory on Base, set up a funded PACT wallet, and a live session-signed fill.
         </Planned>
-        <Planned title="World ID step-up">
-          Optional human confirmation before enabling a material Autopilot mandate. Not wallet authorization, KYC or leader-quality proof.
-        </Planned>
+
       </div>
     </Section>
   );

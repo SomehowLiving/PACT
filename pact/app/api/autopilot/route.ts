@@ -1,6 +1,9 @@
 import { createGrant, currentGrant, grantsFor, publicGrant, revokeCall, revokeGrant, setupCalls } from "@/lib/autopilot";
 import { sessionContracts } from "@/lib/session-account";
 import { requireOwner } from "@/lib/session";
+import { appendEvidence, threads } from "@/lib/evidence";
+import { policyFor } from "@/lib/store";
+import { approverDigest, AUTOPILOT_ACTION, autopilotSignal, recordApproval, verifyWorldProof, worldConfig, WorldError, type WorldProof } from "@/lib/world";
 import type { Chain } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -29,6 +32,7 @@ export async function POST(req: Request) {
     hours?: number;
     maxPerOrderUsd?: number;
     maxDailyUsd?: number;
+    worldProof?: WorldProof;
   };
   if (!body.follower) return Response.json({ error: "follower required" }, { status: 400 });
   const denied = requireOwner(req, body.follower);
@@ -40,7 +44,30 @@ export async function POST(req: Request) {
   if (!CHAINS_OK.includes(chain) || !(hours > 0 && hours <= 24 * 30) || !(perOrder > 0 && perOrder <= 10_000) || !(daily >= perOrder && daily <= 50_000)) {
     return Response.json({ error: "expiry up to 30 days, a per-order cap up to $10,000 and a daily cap at least the per-order cap" }, { status: 400 });
   }
+  // Mandate step-up: a follower who asked for it must approve these exact limits as a human.
+  let approval: { digest: string; first: boolean } | undefined;
+  if (policyFor(body.follower).requireHumanForAutopilot) {
+    if (!worldConfig().enabled) return Response.json({ error: "this desk requires World ID approval, and World ID is not configured on this server", code: "WORLD_NOT_CONFIGURED" }, { status: 409 });
+    if (!body.worldProof) return Response.json({ error: "approve these limits with World ID first", code: "HUMAN_APPROVAL_REQUIRED" }, { status: 403 });
+    try {
+      const signal = autopilotSignal(body.follower, { chain, hours, maxPerOrderUsd: perOrder, maxDailyUsd: daily });
+      const { nullifier } = await verifyWorldProof(AUTOPILOT_ACTION, signal, body.worldProof);
+      const { first } = recordApproval(body.follower, nullifier);
+      approval = { digest: approverDigest(nullifier), first };
+    } catch (e) {
+      if (e instanceof WorldError) return Response.json({ error: e.message, code: e.code }, { status: e.status === 400 ? 403 : e.status });
+      throw e;
+    }
+  }
   const grant = await createGrant({ follower: body.follower, chain, hours, maxPerOrderUsd: perOrder, maxDailyUsd: daily });
+  if (approval) {
+    appendEvidence("autopilot.human_approved", threads.mandate(body.follower), { follower: body.follower }, {
+      grantId: grant.id,
+      limits: { chain, hours, maxPerOrderUsd: perOrder, maxDailyUsd: daily },
+      approverDigest: approval.digest,
+      firstApproval: approval.first,
+    });
+  }
   return Response.json({ grant: await publicGrant(grant), setup: setupCalls(grant) });
 }
 

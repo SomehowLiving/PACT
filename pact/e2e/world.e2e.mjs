@@ -203,6 +203,40 @@ try {
     check("the verified leader's plan is not held for identity", fromA.length > 0 && fromA.every((r) => !r.includes("LEADER_NOT_VERIFIED_HUMAN")), JSON.stringify(fromA));
     check("the unverified leader's plan is held (LEADER_NOT_VERIFIED_HUMAN)", fromB.length > 0 && fromB.every((r) => r.includes("LEADER_NOT_VERIFIED_HUMAN")), JSON.stringify(fromB));
   }
+
+  // ---------- Case 4: Autopilot needs a human approval of its exact limits ----------
+  console.log("\n# Case 4: Autopilot is approved as a human, bound to its limits");
+  {
+    const g = privateKeyToAccount(generatePrivateKey());
+    const gc = await signInNode(g);
+    const current = (await api(`/api/policy?follower=${g.address}`)).json.policy;
+    const saved = await api("/api/policy", { ...current, requireHumanForAutopilot: true }, gc);
+    check("the follower turns on World ID approval for Autopilot", saved.status === 200, `status ${saved.status}`);
+    const limits = { chain: "base", hours: 72, maxPerOrderUsd: 25, maxDailyUsd: 100 };
+    const without = await api("/api/autopilot", { follower: g.address, ...limits }, gc);
+    check("a session without a human approval is refused", without.status === 403 && without.json?.code === "HUMAN_APPROVAL_REQUIRED", `status ${without.status} ${without.json?.code ?? ""}`);
+
+    const sig = await api("/api/world/sign", { address: g.address, purpose: "autopilot" }, gc);
+    const signal = `${g.address.toLowerCase()}:autopilot:${limits.chain}:${limits.hours}h:${limits.maxPerOrderUsd}:${limits.maxDailyUsd}`;
+    const request = await IDKit.request({
+      app_id: config.app_id,
+      action: config.actions.autopilot,
+      rp_context: { rp_id: config.rp_id, nonce: sig.json.nonce, created_at: sig.json.created_at, expires_at: sig.json.expires_at, signature: sig.json.sig },
+      allow_legacy_proofs: false,
+      environment: "staging",
+    }).preset(proofOfHuman({ signal }));
+    await simulate(request.connectorURI);
+    const done = await request.pollUntilCompletion();
+    check("the simulator approved these limits", done.success === true, done.success ? "" : String(done.error));
+
+    const replay = await api("/api/autopilot", { follower: g.address, ...limits, maxPerOrderUsd: 2500, maxDailyUsd: 5000, worldProof: done.result }, gc);
+    check("the approval cannot be reused for higher limits", replay.status === 403 && replay.json?.code === "WORLD_SIGNAL_MISMATCH", `status ${replay.status} ${replay.json?.code ?? ""}`);
+    const created = await api("/api/autopilot", { follower: g.address, ...limits, worldProof: done.result }, gc);
+    check("with the approval, the session is created", created.status === 200 && !!created.json?.grant?.id, `status ${created.status} ${created.json?.error ?? ""}`);
+    const ev = (await api(`/api/evidence?thread=${encodeURIComponent(`mandate:${g.address.toLowerCase()}`)}`)).json?.events ?? [];
+    const approved = ev.find((e) => e.kind === "autopilot.human_approved");
+    check("the approval is in the evidence log with its limits", !!approved && approved.data.limits?.maxPerOrderUsd === 25 && /^0x[0-9a-f]{64}$/.test(approved.data.approverDigest));
+  }
 } catch (e) {
   check("run completed", false, e instanceof Error ? e.message : String(e));
 } finally {

@@ -542,6 +542,38 @@ try {
     const trail = await api(`/api/evidence?thread=${encodeURIComponent(`proposal:${run?.proposalId}`)}`);
     check("the Autopilot run is in the evidence chain", (trail.json?.events ?? []).some((e) => e.kind === "autopilot.run") && trail.json?.verification?.ok, (trail.json?.events ?? []).map((e) => e.kind).join(" → "));
   }
+
+  // ---------- Case 9: one follower, more than five leaders ----------
+  console.log("\n# Case 9: a follower copies six leaders, each inside its own sleeve");
+  {
+    const leaders = Array.from({ length: 6 }, () => privateKeyToAccount(generatePrivateKey()));
+    const fol = privateKeyToAccount(generatePrivateKey());
+    const fc = await signInNode(fol);
+    const current = (await api(`/api/policy?follower=${fol.address}`)).json.policy;
+    const tooMany = await api("/api/policy", { ...current, follows: Array.from({ length: 11 }, () => privateKeyToAccount(generatePrivateKey()).address) }, fc);
+    check("more than ten leaders is refused", tooMany.status === 400, `status ${tooMany.status}`);
+    // Room for six open copies: $150/day overall, $25 per leader, six open plans.
+    const saved = await api("/api/policy", { ...current, follows: leaders.map((l) => l.address), maxDailyUsd: 150, maxLeaderDailyUsd: 25, maxOpenPlans: 6, maxAssetExposureUsd: 150 }, fc);
+    check("six leaders are saved with a sleeve each", saved.status === 200 && saved.json?.policy?.follows?.length === 6, `status ${saved.status} ${saved.json?.error ?? ""}`);
+    const plan = await disciplinedPlan();
+    for (const l of leaders) {
+      const lc = await signInNode(l);
+      const pub = await api("/api/strategies", { leader: l.address, orderType: "twap", qty: "60", durationSeconds: 600, ...plan }, lc);
+      if (pub.status !== 200) throw new Error(`publish failed: ${JSON.stringify(pub.json)}`);
+    }
+    const st = (await api(`/api/state?follower=${fol.address}`)).json;
+    const mine = st.proposals.filter((p) => p.follower.toLowerCase() === fol.address.toLowerCase());
+    const byLeader = new Set(mine.map((p) => p.leader.toLowerCase()));
+    check("every one of the six leaders produced a proposal", byLeader.size === 6, `${byLeader.size} leaders, ${mine.length} proposals`);
+    const decisions = mine.map((p) => st.decisions[p.id]);
+    const copyable = decisions.filter((d) => d && d.verdict !== "BLOCK").length;
+    const counts = decisions.reduce((m, d) => ({ ...m, [d?.action ?? "?"]: (m[d?.action ?? "?"] ?? 0) + 1 }), {});
+    check("all six are copyable inside the mandate", copyable === 6, JSON.stringify(counts));
+    // Quote one of them for real: Flash prices a copy from the sixth leader.
+    const last = mine.find((p) => p.leader.toLowerCase() === leaders[5].address.toLowerCase());
+    const q = await api("/api/quote", { proposalId: last.id, funder: fol.address }, fc);
+    check("Flash quotes the sixth leader's copy", q.status === 200 && !!q.json?.quote?.orderTypedData, `status ${q.status} ${q.json?.error ?? ""}`);
+  }
 } finally {
   await browser.close();
 }

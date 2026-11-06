@@ -1,3 +1,4 @@
+import { MAX_LEADERS } from "@/lib/constants";
 import { requireOwner } from "@/lib/session";
 import { policyFor, rebuildFor, snapshot, upsertPolicy } from "@/lib/store";
 import type { Policy } from "@/lib/types";
@@ -60,8 +61,8 @@ export async function POST(req: Request) {
     !(Number(body.maxPriceImpact) >= 0) ||
     !(Number(body.maxSlippage) >= 0) ||
     !(body.minRewardRisk >= 1) ||
-    (body.follows?.length ?? 0) > 3 ||
-    (body.mandates?.length ?? 0) > 3 ||
+    (body.follows?.length ?? 0) > MAX_LEADERS ||
+    (body.mandates?.length ?? 0) > MAX_LEADERS ||
     !mandatesValid ||
     !pausedValid ||
     !body.allowChains?.length ||
@@ -71,7 +72,7 @@ export async function POST(req: Request) {
     return Response.json(
       {
         error:
-          "valid copy ratio, risk sleeves, up to three leaders, and at least one chain, type and side are required",
+          `valid copy ratio, risk sleeves, up to ${MAX_LEADERS} leaders, and at least one chain, type and side are required`,
       },
       { status: 400 },
     );

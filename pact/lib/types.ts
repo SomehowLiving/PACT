@@ -217,6 +217,8 @@ export type Policy = {
   requireGraduatedLeader?: boolean;
   /** Copy only leaders who proved with World ID that they are a unique human (never a skill signal). */
   requireVerifiedHuman?: boolean;
+  /** Ask for a fresh World ID approval, bound to the limits, before an Autopilot session key is created. */
+  requireHumanForAutopilot?: boolean;
   /** Largest gap allowed between Flash's quote (or the chart) and the oracle at quote time. */
   maxReferenceDivergence?: string;
   minRewardRisk: number;

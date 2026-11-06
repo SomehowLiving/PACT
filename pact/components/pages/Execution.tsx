@@ -668,6 +668,7 @@ const EVENT_LABEL: Record<EvidenceEvent["kind"], string> = {
   "shadow.entry": "Paper copy entered",
   "shadow.settled": "Paper copy settled",
   "autopilot.granted": "Autopilot session granted",
+  "autopilot.human_approved": "Autopilot limits approved by a human (World ID)",
   "autopilot.revoked": "Autopilot session revoked",
   "autopilot.run": "Autopilot run",
 };

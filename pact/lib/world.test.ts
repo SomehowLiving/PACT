@@ -110,3 +110,26 @@ describe("policy: verified-human leaders only", () => {
     expect(decide(prop, { ...p, requireVerifiedHuman: false }, { dailySpentUsd: 0 }).reasons).not.toContain("LEADER_NOT_VERIFIED_HUMAN");
   });
 });
+
+describe("Autopilot approval (mandate step-up)", () => {
+  const limits = { chain: "base", hours: 72, maxPerOrderUsd: 25, maxDailyUsd: 100 };
+  const approval = (signal: string) => ({ ...proof(LEADER), action: "pact-autopilot-stepup", responses: [{ identifier: "proof_of_human", signal_hash: hashSignal(signal), proof: ["0x1"], nullifier: "0x0a" }] });
+
+  it("accepts an approval bound to exactly these limits, and refuses it for higher ones", async () => {
+    const { world } = await setup();
+    const signal = world.autopilotSignal(OTHER, limits);
+    const fetchImpl = ok("0x0a");
+    await expect(world.verifyWorldProof("pact-autopilot-stepup", signal, approval(signal), fetchImpl as never)).resolves.toMatchObject({ nullifier: "10" });
+    const higher = world.autopilotSignal(OTHER, { ...limits, maxPerOrderUsd: 2500 });
+    await expect(world.verifyWorldProof("pact-autopilot-stepup", higher, approval(signal), fetchImpl as never)).rejects.toMatchObject({ code: "WORLD_SIGNAL_MISMATCH" });
+    // A leader-verification proof cannot stand in for an Autopilot approval.
+    await expect(world.verifyWorldProof("pact-autopilot-stepup", signal, { ...approval(signal), action: "pact-verified-leader" }, fetchImpl as never)).rejects.toMatchObject({ code: "WORLD_WRONG_ACTION" });
+  });
+
+  it("keeps the first approver for a desk and refuses a different human", async () => {
+    const { world } = await setup();
+    expect(world.recordApproval(OTHER, "10").first).toBe(true);
+    expect(world.recordApproval(OTHER, "10").first).toBe(false);
+    expect(() => world.recordApproval(OTHER, "11")).toThrow(/different human/);
+  });
+});
