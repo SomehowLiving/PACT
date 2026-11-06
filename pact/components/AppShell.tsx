@@ -71,10 +71,10 @@ const WORKSPACES: Workspace[] = [
   {
     href: "/portfolio",
     label: "Portfolio",
-    match: ["/portfolio", "/"],
+    match: ["/portfolio", "/desk"],
     sections: [
       { href: "/portfolio", label: "Positions & exposure", icon: "pie" },
-      { href: "/", label: "Desk overview", icon: "home" },
+      { href: "/desk", label: "Desk overview", icon: "home" },
     ],
   },
   {
@@ -440,7 +440,7 @@ function Header({ path, onOpenDrawer, wethPrice, health }: { path: string; onOpe
           <path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11" />
         </svg>
       </button>
-      <Link href="/" className="mr-6 flex shrink-0 items-start font-[family-name:var(--font-serif)] text-[32px] leading-none tracking-[0.02em] text-ink lg:mr-0 lg:w-[218px]" title="PACT · desk overview">
+      <Link href="/desk" className="mr-6 flex shrink-0 items-start font-[family-name:var(--font-serif)] text-[32px] leading-none tracking-[0.02em] text-ink lg:mr-0 lg:w-[218px]" title="PACT · desk overview">
         PACT
         <span className="ml-0.5 -mt-1 text-[18px] text-ink/80" aria-hidden>
           +
@@ -621,6 +621,8 @@ function Frame({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(false);
   const wethPrice = Number(health?.price) > 0 ? Number(health?.price) : undefined;
   const wide = path === "/trade";
+  // The landing page brings its own header; the app shell starts at /desk and the workspaces.
+  if (path === "/") return <>{children}</>;
 
   return (
     <div className="min-h-screen">

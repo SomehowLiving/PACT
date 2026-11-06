@@ -102,8 +102,14 @@ check("mandate offers verified-human leaders only", (await p.getByText("Copy onl
 await p.goto(`${BASE}/orders/ord_test_123`, { waitUntil: "networkidle" });
 check("order link opens Orders with that order", p.url().includes("/execution?order=ord_test_123"), p.url());
 
+// Landing page at "/": its own header, no app rail, and real links into the app
+await p.goto(`${BASE}/`, { waitUntil: "networkidle" });
+check("the landing page explains PACT and leads into the app", (await p.locator("h1").innerText()).includes("Copy the plan") && (await p.locator('nav[aria-label="Workspace"]').count()) === 0 && (await p.locator('a[href="/discover"]').count()) > 0 && (await p.getByText("DEMO data").count()) > 0);
+await p.goto(`${BASE}/desk`, { waitUntil: "networkidle" });
+check("the desk overview lives at /desk in Portfolio", (await p.locator('nav[aria-label="Workspace"] a[aria-current="page"]').innerText()).includes("Desk overview"));
+
 // every route renders
-const routes = ["/", "/trade", "/discover", "/following", "/watchlist", "/proposals", "/assist", "/leader", "/portfolio", "/execution", "/history", "/settings/mandate", "/settings/wallet", "/settings/preferences", "/lab", "/follower", "/leader/classic"];
+const routes = ["/", "/desk", "/trade", "/discover", "/following", "/watchlist", "/proposals", "/assist", "/leader", "/portfolio", "/execution", "/history", "/settings/mandate", "/settings/wallet", "/settings/preferences", "/lab", "/follower", "/leader/classic"];
 const bad = [];
 for (const r of routes) {
   const res = await p.goto(`${BASE}${r}`, { waitUntil: "domcontentloaded" });
@@ -115,7 +121,7 @@ check("every existing route still loads", bad.length === 0, bad.join(", ") || `$
 // destination is listed twice across header, rail and account menu.
 const lost = [];
 const twice = [];
-for (const r of routes.filter((x) => x !== "/trade")) {
+for (const r of routes.filter((x) => x !== "/trade" && x !== "/")) {
   await p.goto(`${BASE}${r}`, { waitUntil: "networkidle" });
   const here = await p.locator('nav[aria-label="Workspaces"] a[aria-current="page"], nav[aria-label="Workspace"] a[aria-current="page"]').count();
   if (here === 0 && !["/lab", "/follower"].includes(r)) lost.push(r);

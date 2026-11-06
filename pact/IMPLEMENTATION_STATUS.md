@@ -796,3 +796,15 @@ caution vs alert, the policy hold, a full scan through the store with Base outfl
 block-time mapping, a first clean scan is not news). Follow e2e 48/48 (Case 10: the DEMO
 record holds a new follower's copy, logged); UI e2e 35/35. Found and fixed while testing: a
 first clean scan re-decided every waiting copy of the leader, dropping their saved quotes.
+
+## Landing page and PACT.md (Nov 6, 2026)
+
+- `/` is now the public landing page (`components/Landing.tsx`): what PACT is, the problem,
+  how it works, what is different, follower fairness, what PACT will never do, what it is
+  built on, and an honest status line (funded fill pending). Screenshots are the real app on
+  DEMO data and are labelled DEMO. It has its own header; the app shell starts at the
+  workspaces.
+- The desk overview moved to `/desk` (Portfolio workspace); the in-app logo goes there.
+- `PACT.md` rewritten from what is built and tested now (features, architecture, routes,
+  verification, env, runbooks, constraints, roadmap), keeping the market evidence.
+- UI e2e 37 checks (adds the landing page and `/desk`).

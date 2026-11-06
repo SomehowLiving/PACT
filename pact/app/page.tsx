@@ -1,5 +1,5 @@
-import { Overview } from "@/components/pages/Overview";
+import { Landing } from "@/components/Landing";
 
 export default function Page() {
-  return <Overview />;
+  return <Landing />;
 }

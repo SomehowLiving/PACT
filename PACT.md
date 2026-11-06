@@ -1,428 +1,539 @@
 # PACT
 
-**Follower-owned social strategy execution.**
+**Non-custodial copy trading where the follower owns the rules.**
 
-PACT is a non-custodial social trading MVP built on Definitive Flash. Leaders
-publish structured trade plans; followers decide which leaders they trust and
-what risk they are willing to accept. PACT applies the follower’s policy,
-checks the exact Flash signing payload in the browser, and the follower signs
-only the order that fits their mandate.
+PACT is a copy-trading layer built on [Definitive Flash](https://flash.definitive.fi).
+Leaders publish structured trade plans. Each follower's own mandate decides what to copy,
+how much, and how to exit. The follower signs every order in their own wallet (or through
+a session key they created and limited on chain), and Flash executes it.
 
-PACT does not hold a private key, custody funds, promise returns, or claim that
-copying a profitable leader makes a follower profitable.
+PACT does not hold a private key, custody funds, promise returns, or claim that copying a
+profitable leader makes a follower profitable.
 
 Built for ETHGlobal Mumbai 2026.
 
-## One-Line Thesis
+> **Status (Nov 6, 2026).** Everything below is built and covered by tests. The follower
+> flow has been run end to end against live Flash on Base and Arc with throwaway wallets:
+> real quotes, the browser wallet guard, real EIP-712 signatures, and Flash verifying them
+> before refusing on balance. World ID is tested on World's staging network with World's
+> simulator. **Not yet proven with real money:** a funded mainnet fill, a funded Arc fill, a
+> production World ID proof from World App, and a live Autopilot session (its contracts
+> are not deployed yet). See [Verification](#verification).
 
-> Do not copy a leader’s position size. Copy only the part of their plan that
-> fits a follower-owned risk envelope and can survive the execution path.
+---
 
-## The Problem
+## Contents
 
-Copy trading fails for followers even when a leader is green. The follower can
-receive a worse entry, use unsuitable size, duplicate the same market exposure
-through multiple leaders, pay execution costs that erase the edge, or lose
-control of the exit.
+1. [Thesis](#thesis)
+2. [The problem](#the-problem)
+3. [Market evidence](#market-evidence)
+4. [How PACT works](#how-pact-works)
+5. [What is built](#what-is-built)
+6. [Architecture](#architecture)
+7. [App surfaces](#app-surfaces)
+8. [Verification](#verification)
+9. [Running locally](#running-locally)
+10. [Real-money test runbook](#real-money-test-runbook)
+11. [Demo runbook](#demo-runbook)
+12. [Honest constraints](#honest-constraints)
+13. [Roadmap](#roadmap)
+14. [Related documents and sources](#related-documents-and-sources)
 
-PACT focuses on these follower-side failure modes:
+---
+
+## Thesis
+
+> Do not copy a leader's position. Copy only the part of their plan that fits a
+> follower-owned risk envelope, survives the execution path, and comes from a leader whose
+> own execution backs it.
+
+PACT's distinctive work is concentrated in four places: the **mandate** (per-leader rules
+the follower owns), the **policy verdict** (COPY, SCALE, WAIT, REVIEW or DECLINE, with the
+reason), **evidence** (what the leader and the follower actually executed), and **follower
+fairness** (whether a leader traded against their own followers). Everything else is
+deliberately familiar trading-terminal chrome.
+
+## The problem
+
+Copy trading fails for followers even when the leader is green. The follower gets a
+different trade: a worse entry, a size that does not fit their capital, costs that erase
+the edge, the same bet duplicated across several leaders, and an exit they do not control.
+And some leaders use their followers as exit liquidity: buy early, publish, sell into the
+buying the copy flow creates.
 
 | Follower risk | PACT response | Status |
 | --- | --- | --- |
-| Position is too large for follower capital | Portfolio, leader, asset, daily, and open-plan caps | Built |
-| Leader entry becomes a worse follower fill | Entry drift becomes the Flash order's limit price (enforced by Flash's engine) | Built |
-| Quote has excessive impact or slippage | Quote-time policy gate | Built |
-| Plan has no clear invalidation or stop | Structured plan fields and optional quality gate | Built |
-| Several leaders create one directional bet | Same-asset/same-side concentration view and cap | Built |
-| Follower cannot control exits | Flash TP/SL pair on the follower's position (levels read back and verified) or manual exit | Built for eligible entries |
-| Leader claims an order without evidence | Flash `ORDER_FOUND` lookup under leader wallet | Partial |
-| Follower cannot see whether copying stayed faithful | Quote, fill, and entry-drift receipt | Built |
-| User wants help sorting proposals | Deterministic PACT Assist review queue | Built |
+| Position too large for the follower | Per-order, daily, per-leader, same-asset and open-plan caps; three sizing modes | Built |
+| Leader's entry becomes a worse follower fill | Entry drift becomes the Flash limit price, enforced by Flash's engine | Built |
+| Excessive impact, slippage or fees | Quote-time impact, slippage and execution-cost gates | Built |
+| Plan has no invalidation or stop | Structured plan fields, quality grade, optional hard gate | Built |
+| Several leaders, one directional bet | Same-asset/same-side concentration view and cap | Built |
+| Follower cannot control the exit | Flash TP/SL pair on the follower's own position; PACT never mirrors leader exits | Built |
+| Leader claims a trade they did not make | Leader's Flash order and Base transactions checked against the plan | Built |
+| Leader front-runs or sells into followers | Follower-fairness detection; a repeat holds new copies | Built |
+| Fake leader accounts, reset after losses | World ID: one unique human per leader address | Built (staging-tested) |
+| Follower cannot see whether the copy stayed faithful | Receipts: quote, fills, drift, fees, protection, MATCH/MISMATCH verdicts | Built |
+| Follower wants automation without handing over a key | Autopilot session key with limits enforced on chain | Built; not deployed |
 
-## Market Evidence: Why This Problem Exists
+## Market evidence
 
-Copy trading is already a large, automated product category rather than a
-novel user behavior. The market evidence supports PACT’s narrow claim: the
-follower’s outcome can diverge materially from the leader’s outcome, so the
-copy mechanism and follower risk envelope deserve independent controls.
+Copy trading is already a large, automated category. The evidence supports PACT's narrow
+claim: the follower's outcome can diverge materially from the leader's, so the copy
+mechanism and the follower's risk envelope deserve independent controls.
 
 | Evidence | What it says | PACT implication |
 | --- | --- | --- |
-| [90-day multi-exchange outcome report](https://www.yieldfund.com/news/is-copy-trading-profitable-a-90-day-multi-exchange-study) | The publisher reports **100,236** Binance, Bybit, and MEXC copier outcomes: **48.48%** ended profitable; **97.04%** of leaders were green on their own PnL, while only **43.61%** produced positive follower PnL. | A leader’s displayed PnL is not enough. PACT independently controls size, entry bound, impact, and follower exit. |
-| [IOSCO Final Report, May 2025](https://www.iosco.org/library/pubdocs/pdf/IOSCOPD793.pdf) | The international securities-regulator body identifies that imitative trading is often associated with short-term, higher-risk strategies and warns that frequent trading fees can erode retail returns. | PACT exposes a specific follower mandate before execution instead of presenting automatic imitation as passive investing. |
-| [Binance Copy Trading developer documentation](https://developers.binance.com/en/docs/products/copy-trading/Introduction) | Binance describes copy trading as automated: after the user selects an investment amount, the system automatically copies followed leaders’ trades. | PACT deliberately starts with review-and-self-sign; its future Autopilot must be constrained by a follower-owned session permission, not a generic bot key. |
-| [Hyperliquid vault leader documentation](https://hyperliquid.gitbook.io/hyperliquid-docs/hypercore/vaults/for-vault-leaders) | Legacy vault leaders receive a **10%** profit share and must retain at least **5%** of vault capital. | Incentives and skin-in-the-game matter, but PACT does not pool follower funds or treat a leader incentive as a substitute for follower-specific risk controls. |
-| [Social-learning trading-network study](https://arxiv.org/pdf/2507.01817) | The authors report that users can select traders based on popularity even when popularity is poorly correlated with performance, with static mirroring associated with underperformance. | PACT’s discovery story should emphasize plan evidence, policy compatibility, and execution fidelity—not follower count or a social leaderboard. |
+| [90-day multi-exchange outcome report](https://www.yieldfund.com/news/is-copy-trading-profitable-a-90-day-multi-exchange-study) | The publisher reports **100,236** Binance, Bybit and MEXC copier outcomes: **48.48%** ended profitable; **97.04%** of leaders were green on their own PnL, while only **43.61%** produced positive follower PnL. | A leader's displayed PnL is not enough. PACT controls size, entry bound, impact, cost and exit independently. |
+| [IOSCO Final Report, May 2025](https://www.iosco.org/library/pubdocs/pdf/IOSCOPD793.pdf) | Imitative trading is often associated with short-term, higher-risk strategies; frequent trading fees can erode retail returns. | PACT shows a specific follower mandate before execution instead of presenting imitation as passive investing. |
+| [Binance Copy Trading developer docs](https://developers.binance.com/en/docs/products/copy-trading/Introduction) | After the user picks an amount, the system automatically copies followed leaders' trades. | PACT starts from review-and-self-sign; its Autopilot is bounded by a session permission the follower creates and the chain enforces. |
+| [Hyperliquid vault leader docs](https://hyperliquid.gitbook.io/hyperliquid-docs/hypercore/vaults/for-vault-leaders) | Legacy vault leaders take a **10%** profit share and must keep at least **5%** of vault capital. | Incentives and skin in the game matter, but PACT does not pool funds or treat a leader incentive as a substitute for follower-side controls. |
+| [Social-learning trading-network study](https://arxiv.org/pdf/2507.01817) | Users select traders by popularity even when popularity correlates poorly with performance; static mirroring underperforms. | Discovery emphasises plan evidence, policy compatibility and execution fidelity, not follower counts or a PnL leaderboard. |
 
-### How To Read These Numbers
+The 100,236-outcome report is publisher-produced, not an audited industry dataset. PACT uses
+it to motivate a testable hypothesis, not as a promise:
 
-The `100,236`-outcome report is a useful directional market signal, but it is
-publisher-produced rather than an independently audited industry dataset. PACT
-uses it to motivate a **testable product hypothesis**, not as a promise or a
-universal statistic:
+> Even if a leader's idea is valid, a follower can lose because their entry, size,
+> execution cost, portfolio context and exit are different.
 
-> Even if a leader’s idea is valid, a follower can lose because their entry,
-> size, execution cost, portfolio context, and exit are different.
-
-The IOSCO report is the stronger source for the general retail-risk framing.
-The platform documents establish how current products automate copying and
-incentivize leaders; they do not validate PACT’s performance.
-
-## Product Model
+## How PACT works
 
 ```text
-Leader publishes a declared plan
-        ↓
-Follower chooses leaders and configures a mandate
-        ↓
-PACT policy returns COPY / SCALE / WAIT / DECLINE / REVIEW
-        ↓
-PACT Assist may queue eligible items for review
-        ↓
-Follower requests a Flash quote
-        ↓
-PACT checks the returned quote and browser verifies typed data
-        ↓
-Follower self-signs approvals, permits, entry, and eligible bracket
-        ↓
-Flash executes; PACT records fills and execution fidelity
+Leader publishes a structured plan (optionally with their own Flash order and Base trades)
+        │
+        ├── PACT checks the leader's evidence, paper-copies the plan at Flash's real price,
+        │   and watches the leader's conduct toward followers
+        ▼
+Follower selects leaders (up to 10) and owns a mandate per leader
+        ▼
+PACT policy returns COPY / SCALE / WAIT / REVIEW / DECLINE, with reasons
+        ▼                                   (a blocked plan never reaches Flash)
+Flash quote for the follower's size, with the follower's price bound
+        ▼
+Browser wallet guard re-checks the exact Flash payloads
+        ▼
+Follower signs approvals, permits, entry and protective TP/SL pair
+   (or an Autopilot session key signs, inside limits the chain enforces)
+        ▼
+Flash executes; PACT tracks the order over Flash's order stream, reads fills back,
+records the receipt, and appends every step to a hash-chained evidence log
 ```
 
-PACT is currently a **review-and-self-sign** system. It is not an unattended
-copy bot.
+Policy outcomes:
 
-## What Is Built
+| Decision | Meaning |
+| --- | --- |
+| **COPY** | Fits the mandate as declared |
+| **SCALE** | Fits, at a smaller size (a cap, a sleeve, or a leader trading out of character) |
+| **WAIT** | Not now (plan expired, a cap is full, a loss breaker tripped) |
+| **REVIEW** | Held for the follower's eyes (plan incomplete, evidence missing or contradicted, probation, conduct, unverified human) |
+| **DECLINE** | Outside the mandate (pair, chain, side or order type not allowed; price unavailable) |
 
-### 1. Leader Plans
+COPY and SCALE are policy decisions, not execution statuses. Following a leader never
+places a trade.
 
-Leaders publish:
+## What is built
 
-- thesis and invalidation;
-- reference entry, stop-loss, and take-profit;
-- entry expiry and separate protection expiry;
-- follower capacity;
-- side, chain, pair, order type, quantity, TWAP duration, optional buckets,
-  optional start time, and optional price bound;
-- optional Flash order ID evidence.
+### Leaders and plans
 
-Plan structure is validated before publication:
+A leader publishes a plan with: title, thesis, invalidation; chain, pair, side and Flash
+order type (market, limit, TWAP with duration, optional bucket count and start time,
+optional price bound); quantity; reference entry, stop and target; entry window and a
+separate protection window; follower capacity; and optional evidence (a Flash order ID
+and Base transaction hashes).
 
-```text
-long:  stop < entry < target
-short: target < entry < stop
-```
+Plan structure is validated (`stop < entry < target` for longs, the reverse for shorts)
+and graded **DISCIPLINED**, **CAUTION** or **INCOMPLETE** from reward:risk and
+completeness. Each plan has a canonical page (`/plans/[id]`) with the chart and its levels.
 
-PACT grades plans as `DISCIPLINED`, `CAUTION`, or `INCOMPLETE`. Followers can
-choose whether a low reward:risk plan is merely a warning or an explicit block.
+### Leader evidence
 
-`ORDER_FOUND` means Flash returned an order when queried using the publishing
-leader as funder. It does **not** mean PACT has verified that every plan field
-matches that Flash order.
+PACT reads the leader's evidence itself, read-only:
 
-### 2. Follower Mandates
+- **Flash order:** looked up under the leader's wallet and compared with the plan (pair,
+  side, order type, size, timing, price controls).
+- **Base transactions:** receipts and ERC-20 transfers read from Base RPC, including the
+  leader's Flash fill transactions. Each transaction can back only one plan, and only
+  finalized blocks count as final.
 
-Followers select up to three leaders and can configure global controls plus a
-leader-specific mandate.
+Statuses: `UNVERIFIED` (a declaration only), `ORDER_FOUND`, `PLAN_MATCHED`,
+`ONCHAIN_VERIFIED`, and `MISMATCH` (the leader's own execution contradicts the plan). A
+contradicted plan is held for **every** follower (`LEADER_EXECUTION_MISMATCH`); a follower
+can also require a minimum evidence level.
 
-| Control | Default demo value |
+### Paper copies and probation
+
+Every new plan is paper-copied at Flash's real all-in quote, with no signature, and settled
+against market candles. A leader is **on probation** until three paper copies have settled
+and none of their plans is contradicted. A follower can require that a leader has passed
+probation (`LEADER_ON_PROBATION`). Paper copies that mostly could not be copied within
+default limits mark the leader "hard to copy".
+
+### Follower fairness: front-running and selling into followers' buys
+
+First-party detection, from facts PACT already holds for each copied plan
+(`lib/conduct.ts`, scanner `lib/conduct-run.ts`):
+
+- **Traded well before publishing.** The leader's own evidenced trade came at least 30
+  minutes before the plan was published, and followers' real Flash fills paid at least
+  100 bps worse than the leader. Trading just before publishing is normal skin in the game
+  and is not flagged.
+- **Sold into followers' buys.** The plan's asset left the leader's wallet on Base (ERC-20
+  `Transfer` logs from the leader, on any Base venue, not only Flash) while followers'
+  copies were filling, from the first fill to 30 minutes after the last: at least 25% of the
+  leader's evidenced position, or of what followers bought when the position is unknown.
+- **One occurrence is a caution** (a badge on Discover and the profile). **A repeat is an
+  alert:** PACT holds every follower's new copies of that leader for review
+  (`LEADER_SOLD_INTO_FOLLOWERS`, `LEADER_FRONT_RAN_FOLLOWERS`) and records the finding in
+  the evidence log. Copies are re-decided only when a hold starts or ends.
+- Re-checked when followers' fills arrive and when the leader's profile is read. The
+  profile's **Follower fairness** panel shows each plan's numbers.
+- **Limits, stated in the UI:** Base only. Sales on a centralized exchange, another chain or
+  another wallet are not visible, and a transfer out counts like a sale.
+
+### Signals
+
+- **Style drift:** a plan far outside the leader's usual size. A proportional copy is
+  scaled back to the usual size and says why (`LEADER_SIZE_OUT_OF_CHARACTER`).
+- **Revenge re-entry:** a bigger re-entry right after a stop-out is held for review
+  (`LEADER_REVENGE_PATTERN`).
+- **Three prices at quote time:** Chainlink ETH/USD on Base, the GeckoTerminal chart and
+  Flash's executable quote, side by side. A copy waits if Flash or the chart diverges from
+  the oracle beyond the follower's limit (default 1%, `REFERENCE_PRICE_DIVERGENCE`).
+
+### Follower mandates
+
+A follower selects up to **10 leaders** and owns a mandate for each, inside portfolio-wide
+limits.
+
+| Control | Default |
 | --- | ---: |
-| Selected leaders | Up to 3 |
-| Default sizing | 25% proportional |
-| Default stop-risk budget | $2 planned loss at declared stop |
-| Per-order cap | $30 |
-| Daily cap | $50 |
+| Leaders selected | up to 10 |
+| Sizing | 25% proportional |
+| Stop-risk budget | $2 planned loss at the declared stop |
+| Per order | $5 to $30 |
+| Daily budget | $50 |
 | Per-leader daily sleeve | $25 |
-| Same-asset / same-side exposure | $35 |
+| Same-asset, same-side exposure | $35 |
 | Open plans | 3 total, 1 per leader |
-| Allowed entries | TWAP and limit buys |
+| Order types / sides | TWAP and limit; buys |
 | Maximum entry drift | 1% |
 | Maximum quote price impact | 0.5% |
 | Maximum market slippage | 1% |
+| Maximum execution cost | 3% of size |
+| Plan must have an invalidation | yes |
 
-Each leader can use one of three sizing modes:
+Sizing modes per leader:
 
-1. **Proportional** — a fraction of the leader’s notional.
-2. **Fixed USD** — a fixed follower notional.
-3. **Stop-risk budget** — a maximum planned loss at the leader’s declared stop.
-
-All paths still pass through portfolio, daily, leader, asset-exposure, plan
-capacity, and minimum-size controls.
-
-### 3. Stop-Risk Sizing
-
-Stop-risk sizing is PACT’s strongest follower-specific sizing mechanism.
+1. **Proportional:** a fraction of the leader's notional.
+2. **Fixed USD:** a fixed follower notional.
+3. **Stop-risk budget:** the most the follower would lose at the leader's declared stop.
 
 ```text
-risk per target unit = abs(entry - stop)
-target units = follower risk budget / risk per target unit
-
-buy Flash qty  = target units × entry, denominated in USDC
-sell Flash qty = target units, denominated in the target asset
+risk per unit = |entry − stop|
+units         = risk budget / risk per unit
+buy qty       = units × entry   (USDC)
+sell qty      = units           (target asset)
 ```
 
-PACT then applies all caps. If entry or stop is missing or invalid, PACT returns
-`REVIEW` rather than inventing a size.
+A planned-loss estimate, not a guaranteed maximum: gaps, partial fills, costs and an
+unfilled stop can lose more.
 
-This is a **planned-loss estimate**, not a guaranteed maximum loss. Gaps,
-partial fills, execution costs, and an unfilled stop can produce a larger
-realized loss.
+Optional gates the follower can switch on: plan quality, minimum leader evidence, passed
+probation, verified-human leaders only, a per-leader realized-loss breaker, and World ID
+approval before Autopilot. Each leader can be paused without losing their mandate.
 
-### 4. Flash Execution Controls
+### Flash execution
 
-PACT integrates Flash quote, order, order-status, and cancellation paths.
+PACT integrates Flash's quote, order, order status, cancel and batch cancel endpoints, and
+Flash's **order WebSocket** (one scope per connection, heartbeats) with REST polling as a
+fallback.
 
-For a follower quote, PACT applies:
+For each follower quote PACT applies:
 
-- market slippage limits where relevant;
-- advanced-order price-impact limits, sent on the quote **and** echoed on submit;
-- follower `maxEntryDrift` converted into the order's Flash limit price
-  (`limitNotionalPrice`, or `limitCrossPrice` on a limit entry with protection,
-  which Flash requires):
-  - buy: maximum acceptable execution price;
-  - sell: minimum acceptable execution price;
-  - a stricter leader price bound wins;
-- an **execution-cost budget**: Flash's estimated fees (platform + network +
-  integrator) as a share of size, checked separately from drift (default 3%);
-- copies that never outlive the plan: a resting copy expires with the leader's
-  copy window, and a TWAP copy finishes inside it;
-- TWAP duration, optional bucket count, and optional start-time shaping;
-- an attached Flash TP/SL pair for eligible buy entries when the follower
-  chooses bracket exit; its expiry is never earlier than the entry's.
+- the follower's entry drift as the Flash limit price (`limitNotionalPrice`, or
+  `limitCrossPrice` on a limit entry with protection), a stricter leader bound winning;
+- slippage limits for market orders and price-impact limits for advanced orders, sent on
+  the quote and echoed on submit;
+- an **execution-cost budget**: Flash's estimated fees (platform, network, integrator) as
+  a share of size, separate from drift. A small TWAP whose automatic slice count would
+  exceed it is re-quoted once with two slices;
+- copies that never outlive the plan (a resting copy expires with the copy window; a TWAP
+  finishes inside it);
+- a Flash **TP/SL pair** on the follower's own position when the follower chooses bracket
+  exits. Its expiry is never earlier than the entry's.
 
-For TWAP, `durationSeconds` is quote-only. `twapBucketCount`, `startTime`, and
-the applicable price bound are echoed on order submission. PACT does not send
-TWAP `expireTime` or trigger fields.
+**Who enforces what.** The limit price and TP/SL triggers are enforced by Flash's engine;
+they are not inside the follower's signature (which binds tokens, maximum spend, recipient,
+fee vault and deadline). So PACT reads the live levels back after submit and flags any
+difference, and every receipt carries MATCH/MISMATCH verdicts for the price bound, fees,
+recipient, integrator fee and protection.
 
-**Who enforces what.** The limit price and the TP/SL triggers are enforced by
-**Flash's execution engine**. They are not part of the follower's signature: a
-Flash order signature binds the tokens, the maximum spend, the recipient (the
-follower), the fee vault and the deadline. So PACT reads the live TP/SL levels
-back from Flash after submit and flags any difference from what the follower
-chose, and every receipt carries a MATCH / MISMATCH verdict for the price bound,
-fees, recipient, integrator fee and protection levels.
+### Browser wallet guard
 
-### 5. Browser-Side Signature Guard
+Before any wallet prompt, the follower's browser re-checks Flash's raw payloads for the
+entry and the protection pair: recipient and swapper, tokens and chain (the protection sells
+what the entry buys), policy-approved amount and a bound on what protection may sell, the
+Permit2 or approval spender and amount, the integrator fee vault when pinned
+(`NEXT_PUBLIC_FLASH_VAULT`), the signing domain, and a future deadline.
 
-PACT checks the raw Flash payloads both server-side and in the follower browser
-before any wallet prompt: the entry order **and** the protection pair's approval,
-permit and order. The guard verifies, among other things:
+The guard proves **where funds can go**, not at what price: even a tampered price or trigger
+can only mis-time a trade back into the follower's own wallet. In the end-to-end test a
+server inflating the amount 20× is refused before the wallet is asked for anything.
 
-- follower recipient and swapper on every order;
-- expected tokens and chain (the protection sells what the entry buys);
-- policy-approved amount, and a bound on what the protection may sell;
-- Permit2 or direct-approval target and amount;
-- the integrator fee vault, when pinned (`NEXT_PUBLIC_FLASH_VAULT`);
-- signing domain and future deadline.
+### Receipts, positions and P&L
 
-What the guard proves is **where funds can go**, not at what price: even a
-tampered price or trigger can only mis-time a trade back into the follower's
-own wallet.
+For each submitted order PACT records the leader's declared entry, the quoted price and
+all-in price, the Flash order ID, status and close reason, fills with transaction hashes,
+TWAP progress, average fill, entry drift in bps, fees (finalised fills only, reorg-safe),
+protection status and its own fills. Buy copies become **positions** from Flash's own fill
+rows; open P&L is marked at Flash's exit quote. Nothing is shown until a copy has filled.
+Each order has a downloadable `evidence.json`.
 
-PACT never stores, exports, or requests a follower private key. A blocked plan
-never calls Flash quote or order endpoints. Cancelling a copy cancels the entry
-**and** its live protective order with one signature (Flash batch cancel).
+### Evidence log
 
-### 6. Execution Fidelity Receipts
+Every mandate change, plan, decision, quote, submit, rejection, status change, cancel,
+leader evidence, paper copy, conduct finding, World ID verification and Autopilot action is
+appended to an **append-only, hash-chained** log (`<store>.evidence.jsonl`): SHA-256 over
+canonical JSON, linked both globally and within each thread. The browser recomputes every
+hash; editing or deleting an event shows as broken.
 
-PACT treats leader intent, market context, Flash quote, and filled execution as
-separate evidence layers.
+### Wallet sessions
 
-For a submitted order it records:
+Writes require a Sign-In with Ethereum (EIP-4361) session: a gasless message, then a
+12-hour HMAC cookie. Saving a mandate, publishing, quoting, submitting and cancelling are
+refused without one (401) or for another wallet (403).
 
-- leader declared entry;
-- follower Flash quoted execution price;
-- Flash order ID, status, close reason, transaction IDs, and TWAP progress;
-- fill rows and weighted average fill price when fills are available;
-- follower entry drift in basis points;
-- requested / approved notional and policy decision.
+### World ID
 
-This is not a PnL claim. It answers a narrower, useful question:
+World ID 4.0 (IDKit 4.6), identity only, never trading authority and never a skill signal:
 
-> Did the follower’s actual execution remain faithful to the mandate they approved?
+- **Verified-human leaders.** A leader proves one unique human is behind their wallet; the
+  proof's signal is the wallet address. PACT signs the request (the RP signing key stays on
+  the server), forwards the proof to World's `/v4/verify`, checks environment, action and
+  signal, and binds the nullifier. One human backs one leader address; a second address for
+  the same human is refused (409). Followers see a badge, can filter Discover by it, and can
+  copy verified humans only (`LEADER_NOT_VERIFIED_HUMAN`).
+- **Autopilot approval (mandate step-up).** Opt-in: before an Autopilot session key is
+  created, the follower approves its exact limits in World App. The signal is the follower
+  plus those limits, so an approval for $25/order cannot be replayed for $2,500/order. The
+  first approving human becomes the desk's approver; a different human is refused.
+- The public log records a SHA-256 digest of a nullifier, never the nullifier itself.
 
-### 7. Multi-Leader Portfolio Context
+### Autopilot
 
-PACT shows the follower’s approved capacity by same asset and same direction,
-including the percentage of approved capacity and the number of contributing
-leaders.
+Optional automation without handing PACT a key the chain does not limit:
 
-Example:
+- `PactSessionAccount` (Foundry, `contracts/`): an EIP-7702 / clone account deployed by
+  `PactAccountFactory`. It grants and revokes a session key and validates signatures through
+  EIP-1271 for three kinds only: Flash orders, Permit2 permits and cancels. The scope is
+  enforced on chain: who signs, until when, which tokens, the most per order and per permit,
+  and that every order pays out to the follower's PACT wallet.
+- PACT's policy, wallet guard, daily cap and evidence log apply on top.
+- The session key is generated server-side, stored AES-GCM encrypted, and never returned.
+- Until the factory is deployed and `PACT_AUTOPILOT_SUBMIT=1` is set, Autopilot quotes,
+  checks and signs as a **dry run** and never submits. The default session is 72 hours,
+  which must outlast the 24-hour protection it signs.
 
-```text
-Approved capacity: $45
-WETH buy exposure: $35 · 78% · 2 leaders
-```
+### Arc
 
-PACT deliberately does not manufacture a correlation coefficient, Sharpe
-ratio, trader score, or performance forecast from insufficient history.
+The same follower flow runs on Arc (chain 5042): a follower opts in to Arc in the mandate,
+and leaders publish Arc plans. Flash quotes Arc, the wallet guard passes Arc payloads, the
+wallet signs permits and orders, and Flash verifies the signatures.
 
-### 8. PACT Assist
+### PACT Assist
 
-PACT Assist is optional. When enabled, it scans the existing follower proposal
-set and maps stored policy results into:
+Deterministic, optional review queue: it maps stored policy results to *prepare review*,
+*hold* or *decline*. It cannot change a policy, request a quote, sign, submit or cancel.
 
-- `PREPARE_REVIEW` for `ALLOW` and `MODIFY`;
-- `HOLD` for `WAIT` and `REVIEW`;
-- `DECLINE` for refused plans.
+### Watchlist
 
-Assist is deterministic policy orchestration, not an autonomous trading model.
-It can open the normal review flow, but it cannot:
+Star a leader to watch without following. A per-browser convenience (localStorage);
+starring never follows, sizes or copies anything.
 
-- alter a policy, leader set, token allowlist, or risk budget;
-- request a quote;
-- sign typed data;
-- submit or cancel an order;
-- access a private key or session key.
+## Architecture
 
-## Learning Loop
+PACT is layered so that each layer's facts are kept apart from the layer that judges them.
 
-PACT’s current learning is **evidence learning**, not self-training or a claim
-of predictive AI.
-
-### What PACT Learns and Stores
-
-Over completed Flash orders, PACT can accumulate first-party execution facts:
-
-- declared entry versus quoted entry;
-- quoted entry versus average fill;
-- entry drift in basis points by leader, pair, order type, and direction;
-- quote impact and terminal close reasons;
-- requested size versus policy-approved size versus filled size;
-- plan completeness and repeatability of declared stop/target/invalidation.
-
-### What This Enables Later
-
-Once there is enough real receipt history, PACT can surface factual execution
-quality such as:
-
-- “This leader’s TWAP plans have historically stayed within X bps of declared
-  entry for this follower.”
-- “This style frequently exceeds the follower’s quote-impact threshold.”
-- “Two selected leaders repeatedly create the same long-asset concentration.”
-
-These must remain descriptive, with source receipts available. PACT must not
-turn a few fills into a “safe leader” or “will make money” score.
-
-### Future Adaptive Policy Principle
-
-Any future learning system may **recommend** a tighter cap, lower risk budget,
-or manual review. It must never silently widen risk, change a follower mandate,
-or activate execution authority. The follower remains the policy owner.
-
-## Assist Versus Autopilot
-
-| Capability | PACT Assist | Future Autopilot |
+| Layer | Responsibility | Key files (`pact/`) |
 | --- | --- | --- |
-| Scan and explain policy decisions | Yes | Yes |
-| Queue review items | Yes | Yes |
-| Sign / submit an order | No | Only with delegated authority |
-| Cancel or unwind | No | Only with scoped delegated authority |
-| Holds follower EOA key | Never | Never |
+| L0 Adapters | Flash REST and WebSocket, Base RPC, Chainlink, GeckoTerminal | `lib/flash.ts`, `lib/flash-stream.ts`, `lib/base-rpc.ts`, `lib/oracle.ts`, `lib/market.ts` |
+| L1 Evidence store | State and the hash-chained log | `lib/store.ts`, `lib/evidence.ts`, `lib/evidence-verify.ts` |
+| L2 Domain | Plans, proposals, receipts, positions | `lib/types.ts`, `lib/positions.ts`, `lib/receipts.ts`, `lib/tracker.ts` |
+| L3 Signals | Leader evidence, paper copies, style and revenge, references, conduct | `lib/leader-evidence.ts`, `lib/leader-verify.ts`, `lib/shadow*.ts`, `lib/signals.ts`, `lib/reference.ts`, `lib/conduct*.ts` |
+| L4 Policy | The decision and its reasons; copyability preview | `lib/policy.ts`, `lib/copyability.ts` |
+| L5 Execution | Quote shaping, cost budget, submit, cancel | `lib/copy-quote.ts`, `lib/submit-order.ts`, `app/api/quote`, `app/api/order` |
+| L6 Authority | Sessions, wallet guard, Autopilot, World ID | `lib/session.ts`, `lib/guard.ts`, `lib/autopilot.ts`, `lib/session-account.ts`, `lib/world*.ts`, `contracts/` |
+| L7 Experience | The trading terminal | `components/`, `app/` |
 
-Autopilot is **not available** today. It requires a follower-owned smart
-account with a revocable, short-lived, onchain-scoped session key. The session
-must restrict Flash contracts, chain, assets, sides, order types, limits,
-expiry, no-withdrawal behavior, and revoke path. See
-`pact/AGENT_AUTOMATION_ARCHITECTURE.md` for the required gates.
+The UI follows one navigation system (`components/AppShell.tsx`): the header holds the five
+workspaces; the rail's top group is the current workspace's sections; its bottom group
+("You") is My Plans, Mandate and Settings; the account menu holds the wallet and tools. No
+destination is listed twice, every route belongs to exactly one place, and every object has
+one canonical URL. Rules: `pact/PACT_UI_DESIGN_RULES.md`, `pact/AGENTS.md`.
 
-World ID may later be a step-up confirmation before a user enables a material
-Autopilot mandate. It is not wallet authorization and cannot replace a session
-permission.
+## App surfaces
 
-## Honest Constraints
-
-PACT is hackathon MVP software, not production investment infrastructure.
-
-- No security audit has been completed.
-- State is local JSON demo storage, not durable multi-user persistence.
-- Base is the primary configured path; Arc is configured but not live-tested.
-- The repository does not contain a recorded successful real follower mainnet
-  fill and attached bracket report yet.
-- The loss breaker can refuse future copies when trusted realized-PnL evidence
-  exists; it is not a full live portfolio drawdown engine.
-- PACT has no leader-performance leaderboard, verified historical wallet PnL,
-  full plan-to-order equivalence check, or statistical correlation engine.
-- Current Base WETH/USDC flow is spot-style execution. PACT does not claim
-  leverage limits, liquidation protection, or funding-rate controls.
-- No automatic copy execution, automatic cancellation, or automatic unwind is
-  available.
-
-## App Surfaces
-
-| Surface | Purpose |
+| Route | What it is |
 | --- | --- |
-| `/` | Portfolio floor, policy simulation matrix, market/Flash health, demo loading |
-| `/leader` | Publish a structured Flash-shaped leader plan |
-| `/follower` | Choose leaders, set mandates, use Assist, and inspect concentration |
-| `/review/[proposalId]` | Compare declaration, real Base WETH/USDC market context, policy, Flash quote, guard, and signing flow |
+| `/` | Landing page |
+| `/trade` | Market terminal: chart, the selected plan and your mandate check, incoming plans |
+| `/discover`, `/following`, `/watchlist` | Leaders (table and leader panel), the leaders you follow, your watchlist |
+| `/leaders/[address]` | Leader profile: overview, plans, execution evidence and follower fairness, paper copies |
+| `/plans/[id]` | A published plan with its chart, copies, leader execution and evidence log |
+| `/proposals`, `/assist` | Your proposal inbox by decision; PACT Assist |
+| `/review/[proposalId]` | Proposal review: plan, your execution, policy check, Flash quote, wallet guard, signing |
+| `/portfolio`, `/desk` | Positions, exposure and sleeves; the desk overview |
+| `/execution`, `/orders/[id]`, `/history` | Orders with fills, policy, plan and evidence; a canonical order link; the activity log |
+| `/leader` | My Plans: publish a plan, verify as a human |
+| `/settings/mandate`, `/settings/wallet`, `/settings/preferences` | Mandate; wallet, Autopilot and World ID; preferences |
+| `/lab`, `/follower`, `/leader/classic` | Tools: demo lab, the classic follower desk, the classic leader ticket |
 
-## Demo Runbook
+API (`app/api`): `state`, `policy`, `strategies` (+ `[id]/evidence`), `proposals`, `quote`,
+`order`, `orders/[id]` (+ `cancel`, `evidence`), `positions`, `reference`, `market/weth`,
+`leaders/[address]`, `evidence`, `session` (+ `nonce`), `autopilot` (+ `run`), `world`
+(+ `sign`, `verify`), `agent`, `demo`, `health`, `preflight`.
 
-1. Start at `/` and select **load demo scenario**.
-2. Show the deterministic policy outcomes: approved, scaled, blocked, expired,
-   low reward:risk, evidence-required, and unsupported-pair cases.
-3. In `/follower`, select multiple leaders and show sleeves, stop-risk budget,
-   concentration, and the optional Assist scan.
-4. Open an approved proposal in `/review/[proposalId]`.
-5. Show declared plan levels, real market context, follower execution bound,
-   and the browser-side signature guard.
-6. Use a dedicated funded follower wallet to request a Flash quote and,
-   only after manually verifying the prompts, sign the entry and eligible
-   bracket.
-7. Show order status, TWAP slice progress, fills, and execution-fidelity
-   receipt.
+## Verification
 
-## Running Locally
+Full run, Nov 6, 2026 (no funds; throwaway wallets):
+
+| Suite | Result | What it covers |
+| --- | --- | --- |
+| Typecheck, lint, production build | pass | — |
+| Unit (`npm test`) | 169 passed | Policy, sizing, guard, evidence chain, positions, stream, signals, conduct, World ID, Autopilot, copyability |
+| Live Flash (`FLASH_LIVE=1`) | 9 passed | Real Flash quotes (limit with bracket, TWAP with protection, Arc), the order WebSocket, a real Base transaction, a paper copy on real candles, three prices, an exit mark; no orders placed |
+| Foundry (`forge test`) | 14 passed, plus the Base-fork Permit2 test | Session account and factory |
+| Anvil (`PACT_ANVIL=1`) | 3 passed | PACT's encoders against the deployed contracts |
+| Follow e2e (`npm run e2e`) | 48/48 | Sessions; connect, guard, sign, submit to Flash; tampered quote refused; BLOCK locked; leader evidence contradicted; paper copies; three prices; style drift; Arc; Autopilot dry run; six leaders; conduct hold |
+| UI e2e (`node e2e/ui.e2e.mjs`) | 37 checks | One navigation, nothing listed twice, URL state, back and forward, routes, landing, watchlist, Settings tabs, tablet drawer |
+| World e2e (`npm run e2e:world`, staging) | 22/22 | Leader verification in the browser with World's simulator, one human per leader, wrong-wallet and replay refusals, verified-only rule, Autopilot approval |
+
+Not yet proven: a funded mainnet fill and its protection, a funded Arc fill, a production
+World ID proof from World App, a live Autopilot session (factory not deployed), and leader
+conduct on a real leader with real follower fills.
+
+## Running locally
 
 ```bash
 cd pact
 npm install
-cp .env.example .env.local
-npm run dev
+cp .env.example .env.local   # then fill in the values below
+npm run dev                  # http://localhost:3000
 ```
 
-Flash requests require:
+| Variable | Needed for |
+| --- | --- |
+| `FLASH_API_KEY` | Flash quotes and orders (required) |
+| `EVM_RPC_URL`, `NEXT_PUBLIC_EVM_RPC_URL` | Base RPC (defaults to the public endpoint) |
+| `NEXT_PUBLIC_FLASH_VAULT` | Pin the integrator fee vault in the wallet guard |
+| `FLASH_BUILDER_CODE` | Optional Flash builder code |
+| `PACT_SESSION_SECRET` | Session cookie key (generated into the store folder if unset) |
+| `PACT_STORE_FILE` | Store location (default `.data/store.json`) |
+| `PACT_ORDER_STREAM=off` | Poll Flash instead of using its order stream |
+| `WORLD_APP_ID`, `WORLD_RP_ID`, `WORLD_PRIVATE_KEY` | World ID (the last is the RP signing key) |
+| `WORLD_ENV=staging` | Use World's simulator instead of World App |
+| `NEXT_PUBLIC_PACT_FACTORY_BASE`, `NEXT_PUBLIC_PACT_ACCOUNT_IMPL_BASE` (and `_ARC`) | Autopilot contracts once deployed |
+| `PACT_AUTOPILOT_SUBMIT=1` | Let an active Autopilot session submit (off: dry run) |
 
-```text
-FLASH_API_KEY=...
-```
-
-Validation:
+Tests:
 
 ```bash
-npm test
-npm run lint
-npx tsc --noEmit
+npm test && npm run lint && npx tsc --noEmit
+FLASH_LIVE=1 npx vitest run lib/flash.live.test.ts
+PACT_ANVIL=1 npx vitest run lib/session-account.anvil.test.ts
+(cd contracts && forge test)
+npm run e2e                                 # against a running server (PACT_URL)
+node e2e/ui.e2e.mjs
+WORLD_ENV=staging npm run dev & npm run e2e:world
 ```
 
-## Before Using Real Funds
+Run end-to-end tests against an isolated server and store, e.g. `NEXT_DIST_DIR=.next-e2e
+PACT_STORE_FILE=/tmp/pact-e2e/store.json npx next dev -p 3920`, never against the store
+you use day to day.
 
-Use a dedicated plain EOA, Base mainnet, a small USDC balance, and enough Base
-ETH for approval transactions. Start with a small WETH/USDC TWAP and an
-attached follower bracket. Confirm every wallet prompt, retain the Flash order
-ID and transaction hashes, and inspect order/fill status before claiming that
-PACT has completed a live mainnet execution.
+## Real-money test runbook
 
-## Related Design Documents
+Smallest useful test, on Base.
 
-- `pact/PRODUCT_DIRECTION.md` — terminal information architecture.
-- `pact/CRITIQUE_AND_WORLD_DECISION.md` — critique response, Flash facts, and
-  World decision.
-- `pact/FOLLOWER_OUTCOME_STRATEGY.md` — follower-risk product strategy.
-- `pact/AGENT_AUTOMATION_ARCHITECTURE.md` — Assist and future Autopilot
-  authority model.
+- **Leader wallet:** any wallet; no funds needed.
+- **Follower wallet:** a dedicated wallet with about $30 USDC and about $1 of ETH on Base.
+  Never paste a private key anywhere; everything is signed in the wallet.
 
-## External Sources
+1. **Leader**, at `/leader`: optionally verify with World ID. Publish a TWAP plan: quantity
+   100, reference entry at today's price, stop −2%, target +4%, duration 600 s, 2 slices.
+2. **Follower**: Discover → the leader → Follow with the default mandate. The copy is 25%
+   of 100, so $25.
+3. **Proposals** → the COPY → Proposal Review. Confirm the wallet guard says "safe to sign",
+   then sign: two small USDC approvals (gas), then permits and orders.
+4. **Orders**: watch both slices fill; open the order for fills, transaction links and
+   `evidence.json`.
+5. **After the fill**, the stop and target stay live on Flash for 24 hours and can trade.
+   Cancel from the review page to stop them.
+
+Expected cost: about $0.16 of Flash fees for two slices, a few cents of gas, and a little
+price impact.
+
+## Demo runbook
+
+1. Open `/` (landing), then **Launch app**. Choose a DEMO desk from the desk picker, or load
+   the demo scenario from the Demo lab.
+2. **Discover**: the leader table, the leader panel, copyability for your desk; Leader BBBB
+   carries the "sold into followers" badge.
+3. **Leader profile**: evidence, paper copies, probation, and the Follower fairness panel.
+4. **Proposals**: COPY, SCALE, WAIT, REVIEW and DECLINE cases with their reasons.
+5. **Proposal Review**: the plan's levels on the chart, your execution under the mandate,
+   the policy check, the Flash quote and the wallet guard.
+6. **Portfolio and Orders**: sleeves, exposure, positions, order detail with fills, policy,
+   plan and evidence.
+7. **Mandate**: per-leader sizing, caps, exits, the World ID and Autopilot options.
+
+DEMO data is seeded, labelled DEMO everywhere, and read-only.
+
+## Honest constraints
+
+- Hackathon software: no security audit.
+- State is a local JSON store and an append-only log file, not multi-user persistence.
+- Pairs: WETH/USDC on Base and Arc; spot only. No leverage, liquidation or funding controls.
+- Leader conduct reads the leader's wallet on Base only. Centralized exchanges, other chains
+  and other wallets are invisible, and a transfer out counts like a sale.
+- Open P&L appears only after a copy has filled; PACT has no leader PnL leaderboard and
+  computes no correlation, Sharpe or "safe leader" score from thin history.
+- Autopilot's contracts are not deployed; until they are, Autopilot only dry-runs.
+- World ID is staging-tested; a production proof from World App has not been recorded.
+- No funded mainnet or Arc fill has been recorded yet.
+
+## Roadmap
+
+1. Record the funded Base fill and its protection; then Arc.
+2. Deploy the session factory on Base and record a live session-signed fill.
+3. A PACT integrator key and pinned fee vault; leader revenue from follower outcomes (for
+   example a share above the follower sleeve's high-water mark), so dumping followers
+   costs the leader.
+4. Markouts, venue split and a one-signature leader kill switch.
+5. Token-side risk (holder concentration, deployer-linked wallets) from external
+   clustering data, beside PACT's behavioural conduct signal.
+
+## Related documents and sources
+
+- `pact/IMPLEMENTATION_STATUS.md`: what was built, step by step, with test results.
+- `pact/PACT_UI_DESIGN_RULES.md`, `pact/AGENTS.md`: UI rules and the navigation model.
+- `pact/PRODUCT_DIRECTION.md`: terminal information architecture.
+- `pact/CRITIQUE_AND_WORLD_DECISION.md`: critique response, Flash facts, World ID decision.
+- `pact/FOLLOWER_OUTCOME_STRATEGY.md`: follower-risk product strategy.
+- `pact/AGENT_AUTOMATION_ARCHITECTURE.md`: Assist and Autopilot authority model.
+- `pact-architecture.md`: layer-by-layer architecture.
+
+External sources:
 
 - YieldFund, *Is Copy Trading Profitable? A 90-Day, Multi-Exchange Study*:
   https://www.yieldfund.com/news/is-copy-trading-profitable-a-90-day-multi-exchange-study
-- IOSCO, *Online Imitative Trading Practices: Copy Trading, Mirror Trading,
-  Social Trading* (May 2025):
-  https://www.iosco.org/library/pubdocs/pdf/IOSCOPD793.pdf
+- IOSCO, *Online Imitative Trading Practices: Copy Trading, Mirror Trading, Social Trading*
+  (May 2025): https://www.iosco.org/library/pubdocs/pdf/IOSCOPD793.pdf
 - Binance Developer Docs, *Copy Trading Introduction*:
   https://developers.binance.com/en/docs/products/copy-trading/Introduction
 - Hyperliquid Docs, *For Vault Leaders (Legacy)*:
   https://hyperliquid.gitbook.io/hyperliquid-docs/hypercore/vaults/for-vault-leaders
-- Joseph et al., *When Influence Misleads: Informational and Strategic Limits
-  of Social Learning in Trading Networks* (arXiv preprint):
-  https://arxiv.org/pdf/2507.01817
+- Joseph et al., *When Influence Misleads: Informational and Strategic Limits of Social
+  Learning in Trading Networks* (arXiv): https://arxiv.org/pdf/2507.01817
+- Definitive Flash docs: https://flash.definitive.fi/docs
+- World ID docs: https://docs.world.org/world-id/overview
