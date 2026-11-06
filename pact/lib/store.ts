@@ -6,6 +6,7 @@ import { toUnits } from "./guard";
 import { appendEvidence, hashSync, lastInThread, resetEvidence, threads } from "./evidence";
 import { sha256Json } from "./hash";
 import { shadowSummary } from "./shadow";
+import { revengePattern, styleDrift } from "./signals";
 import {
   assessLeaderPlan,
   decide,
@@ -21,6 +22,7 @@ import type {
   LeaderEvidence,
   LeaderMandate,
   ShadowCopy,
+  Signal,
   Policy,
   Proposal,
   Receipt,
@@ -559,6 +561,14 @@ export async function createProposal(strategyId: string, follower: `0x${string}`
       : strategy.side === "sell"
         ? requestedNotionalUsd / (sized?.price ?? 1)
         : requestedNotionalUsd;
+  // L3 plan-time signals from the leader's own history. A copy that scales with the leader is
+  // brought back to the leader's usual size when this plan is out of character (R8).
+  const history = m.strategies.filter((s) => s.leader.toLowerCase() === strategy.leader.toLowerCase());
+  const signals = [styleDrift(strategy, history), revengePattern(strategy, history)].filter((s): s is Signal => !!s);
+  const style = signals.find((s) => s.id === "STYLE_DRIFT" && s.level === "alert");
+  const styleScale = style?.value && sizingMode === "PROPORTIONAL" ? 1 / style.value : 1;
+  const copyQty = requestedQty * styleScale;
+  const copyNotionalUsd = requestedNotionalUsd * styleScale;
   const effectivePolicy: Policy = mandate
     ? {
         ...policy,
@@ -594,8 +604,8 @@ export async function createProposal(strategyId: string, follower: `0x${string}`
     contraAsset: strategy.contraAsset,
     side: strategy.side,
     orderType: strategy.orderType,
-    qty: requestedQty > 0 ? formatQty(requestedQty) : "0",
-    notionalUsd: requestedNotionalUsd,
+    qty: copyQty > 0 ? formatQty(copyQty) : "0",
+    notionalUsd: copyNotionalUsd,
     maxSlippage: strategy.orderType === "market" ? effectivePolicy.maxSlippage : undefined,
     maxPriceImpact:
       strategy.orderType === "twap" || strategy.orderType === "limit"
@@ -607,6 +617,7 @@ export async function createProposal(strategyId: string, follower: `0x${string}`
     limitNotionalPrice: strategy.limitNotionalPrice,
     triggers: strategy.triggers,
     demoCase: strategy.demoCase,
+    signals: signals.length ? signals : undefined,
     createdAt: new Date().toISOString(),
   };
 
@@ -627,6 +638,7 @@ export async function createProposal(strategyId: string, follower: `0x${string}`
         activePlanCount: activePlanCount(follower),
         activePlanCountForLeader: activePlanCount(follower, strategy.leader),
         leaderProbation: leaderProbation(strategy.leader),
+        planSignals: signals,
       });
   if (decision.verdict === "MODIFY" && decision.modifiedQty) {
     const capUsd = Number(decision.modifiedQty);
@@ -636,6 +648,15 @@ export async function createProposal(strategyId: string, follower: `0x${string}`
     }
     proposal.qty = decision.modifiedQty;
     proposal.notionalUsd = capUsd;
+  }
+  if (styleScale < 1 && decision.verdict !== "BLOCK") {
+    // Say why the copy is smaller than the leader's size implies.
+    if (decision.verdict === "ALLOW") {
+      decision.verdict = "MODIFY";
+      decision.action = "SCALE";
+      decision.modifiedQty = proposal.qty;
+    }
+    decision.reasons = [...decision.reasons, "LEADER_SIZE_OUT_OF_CHARACTER"];
   }
 
   m.proposals.unshift(proposal);
@@ -729,6 +750,7 @@ export function saveQuote(quote: StoredQuote) {
       // What the wallet is asked to sign, by hash: the entry and the protection order.
       orderTypedDataHash: quote.orderTypedData ? hashSync(quote.orderTypedData) : undefined,
       protectionTypedDataHash: quote.attachedBracket?.orderTypedData ? hashSync(quote.attachedBracket.orderTypedData) : undefined,
+      reference: quote.reference,
     },
   );
   return quote;

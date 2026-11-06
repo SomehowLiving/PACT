@@ -127,7 +127,7 @@ One module per external system, each with a typed, validated contract. No busine
 | **Flash REST** | quote, order, get/list orders, cancel, batch cancel, update, search, balances | schema validation of every response; `chainId` string → number; 201 on submit; 404 for about 2 s after submit; `error.details`; 429 with `RateLimit-Reset` backoff; a per-key request budget | Partial (no validation, no backoff, no list/batch/update) |
 | **Flash WebSocket** | one upstream connection; subscribe per active funder; heartbeats | reconnect with backoff, resync from `GET /orders` after a gap, fan-out to browsers | Built (Nov 6): `lib/flash-stream.ts` + `lib/tracker.ts`; frames trigger REST refresh, snapshot resync, polling fallback |
 | **Base RPC** | transaction receipts, logs, balances, code at address (7702 detection) | reorgs (only use finalised blocks), decoding settlement calls and transfer events | Receipts, finality and ERC-20 transfer decoding (`lib/base-rpc.ts`) for leader evidence; balances |
-| **Market data** | GeckoTerminal candles; Pyth Hermes reference price (planned) | caching, freshness labels, free-tier limits | Gecko only |
+| **Market data** | GeckoTerminal candles; Chainlink ETH/USD on Base as the reference (Pyth Hermes needs an API key since 26 Aug 2026) | caching, freshness labels, free-tier limits | Gecko + Chainlink (`lib/oracle.ts`) |
 | **Identity** | wallet connect; signed sessions (SIWE) for every mandate change and publish | message replay protection | Built (Nov 6): SIWE sessions gate every desk write (`lib/session.ts`) |
 
 ### L1 — Evidence store
@@ -176,8 +176,8 @@ Facts with provenance; a signal never makes a decision. Each signal declares its
 | Concentration (same asset and side) | Domain | Built |
 | Leader execution evidence | LeaderExecution | Built: Flash order matched to the plan + leader wallet trades verified on Base |
 | Copy fidelity per leader | Fill + LeaderExecution | Built both sides: leader onchain drift, copiers' drift, gap, plus paper copies |
-| Style drift (size vs leader's history) | LeaderExecution history | Planned (needs history) |
-| Reference-price divergence (Pyth vs chart vs quote) | Market + Quote | Planned |
+| Style drift (size vs leader's history) | LeaderExecution history | Built: size vs median of ≥3 prior plans; ≥3× = alert (`lib/signals.ts`) |
+| Reference-price divergence (oracle vs chart vs quote) | Market + Quote | Built: Chainlink · GeckoTerminal · Flash, checked at quote time |
 | Mark-to-market via reverse-side quote | Quote | Built: exit quote for the open size (`lib/marks.ts`) |
 
 ### L4 — Policy
@@ -240,10 +240,10 @@ its source layer. Mandate changes and publishing are signed (L0 identity).
 | R4 cost budget | L4 quote-time | Built | Cost = max(fee, value lost); default budget 3% |
 | R5 price impact | L4 quote-time | Built | Send on submit too |
 | R6 / R7 heat caps | L4 plan-time | Partial (same asset and side) | Correlation needs history; keep descriptive |
-| R8 style drift | L3 + L4 | Planned | Needs verified leader history (onchain) |
-| R9 revenge signature | L3 + L4 | Planned | Needs leader history |
+| R8 style drift | L3 + L4 | Built | Proportional copies scaled back to the usual size (MODIFY SCALE `LEADER_SIZE_OUT_OF_CHARACTER`); fixed sizes keep their size, signal shown |
+| R9 revenge signature | L3 + L4 | Built | Bigger re-entry within 24 h of a paper stop-out → REVIEW `LEADER_REVENGE_PATTERN` |
 | R10 invalidation required | L4 plan-time | Built (follower option) | Decide whether to require it at publish |
-| R11 oracle divergence | L3 + L4 | Planned | Pyth Hermes adapter |
+| R11 oracle divergence | L3 + L4 | Built | > limit (default 1%) from Chainlink → WAIT `REFERENCE_PRICE_DIVERGENCE`; stale or unreadable oracle shown, not blocking |
 | R12 plan TTL | L2 + L5 | Partial | Copy expiry must not outlive the plan (today 7-day limits) |
 | R13 breaker → kill switch | L4 + L5 + L6 | Partial | Needs bracket legs in the batch and a signer at trip time |
 | R14 un-copyable flag | L3 | Built (signal) | >50% of ≥3 paper copies not copyable → "hard to copy" |
@@ -255,14 +255,14 @@ its source layer. Mandate changes and publishing are signed (L0 identity).
 
 | Scenario | Today | With this architecture |
 | --- | --- | --- |
-| A1 leader goes 4× size, no exit | Size caps and plan-quality check | + style drift once onchain history exists |
+| A1 leader goes 4× size, no exit | Size caps and plan-quality check | Built: style drift scales the copy back |
 | A2 leader chases | WAIT at quote-time; entry limit sent to Flash | + all-in price including fees |
-| A3 revenge re-entry | Open-plan limits | + revenge signal (needs history) |
+| A3 revenge re-entry | Open-plan limits | Built: revenge pattern held for review |
 | A4 scalper | Not detected | + un-copyable flag from fidelity |
 | A5 hidden hedge | Concentration cap | Same; disclosed limitation |
 | A6 no matching order | Built (Nov 6): tx hashes from any venue are checked on Base (direction, price, window, finality, reuse) | Same, plus plan ↔ fill matching history |
 | B1 thin liquidity | Price-impact limit | Same |
-| B2 news shock / divergence | Not built | Pyth vs chart vs quote panel |
+| B2 news shock / divergence | Built: three-price check and panel | Same |
 | B4 crash mid-TWAP | Single cancel (bracket stays live) | Batch cancel of entry and legs |
 | C1 wallet runs dry | Raw close reason | + balance pre-check (`GET /balances`) |
 | C3 tiny order cost | Not checked | Cost gate and bucket sizing |

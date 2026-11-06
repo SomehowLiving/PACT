@@ -376,6 +376,14 @@ function RiskSection({ draft, errors, patch }: SectionProps) {
         />
         <NumField label="Max quote price impact" unit="%" step={0.1} value={pct(draft.maxPriceImpact)} onChange={(v) => patch({ maxPriceImpact: String(v / 100) })} error={errors.maxPriceImpact} />
         <NumField label="Max market slippage" unit="%" step={0.1} value={pct(draft.maxSlippage)} onChange={(v) => patch({ maxSlippage: String(v / 100) })} error={errors.maxSlippage} />
+        <NumField
+          label="Max gap to the oracle"
+          unit="%"
+          step={0.1}
+          value={pct(draft.maxReferenceDivergence ?? "0.01")}
+          onChange={(v) => patch({ maxReferenceDivergence: String(v / 100) })}
+          help="At quote time a copy waits if Flash's price or the chart is further than this from Chainlink's ETH/USD on Base."
+        />
       </div>
       <div className="mt-5 rounded-lg border border-line bg-panel-2 p-3">
         <Toggle

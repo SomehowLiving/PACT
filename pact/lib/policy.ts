@@ -1,5 +1,6 @@
+import type { ReferenceCheck } from "./signals";
 import { evidenceRank } from "./leader-evidence";
-import type { Decision, LeaderPlanGrade, Policy, Proposal, Side } from "./types";
+import type { Decision, LeaderPlanGrade, Policy, Proposal, Side, Signal } from "./types";
 
 export function pairKey(target: string, contra: string) {
   return `${target.toLowerCase()}:${contra.toLowerCase()}`;
@@ -31,6 +32,8 @@ export type RiskContext = {
   activePlanCountForLeader?: number;
   /** From paper copies (lib/shadow): has the leader left probation? */
   leaderProbation?: "PROBATION" | "GRADUATED";
+  /** L3 plan-time signals (lib/signals). */
+  planSignals?: Signal[];
 };
 
 export type ExecutionMetrics = {
@@ -231,6 +234,10 @@ export function decide(
   if (proposal.leaderEvidenceStatus === "MISMATCH") {
     return { verdict: "BLOCK", action: "REVIEW", reasons: ["LEADER_EXECUTION_MISMATCH"] };
   }
+  // R9: a bigger re-entry right after a stop-out is held for the follower to look at.
+  if (context.planSignals?.some((s) => s.id === "REVENGE_PATTERN" && s.level === "alert")) {
+    return { verdict: "BLOCK", action: "REVIEW", reasons: ["LEADER_REVENGE_PATTERN"] };
+  }
   if (policy.requireGraduatedLeader && context.leaderProbation !== "GRADUATED") {
     return { verdict: "BLOCK", action: "REVIEW", reasons: ["LEADER_ON_PROBATION"] };
   }
@@ -338,7 +345,14 @@ export function decideExecution(
   proposal: Pick<Proposal, "entryReferencePrice">,
   policy: Pick<Policy, "maxPriceImpact" | "maxEntryDrift" | "maxExecutionCost">,
   metrics: ExecutionMetrics,
+  referenceCheck?: Pick<ReferenceCheck, "status">,
 ): Decision | undefined {
+  // R11: Flash's price (or the chart) is far from the independent oracle. Wait for them to
+  // agree rather than sign into a moving or mispriced market. An unreadable oracle does not
+  // block; it is shown as unavailable.
+  if (referenceCheck?.status === "DIVERGED") {
+    return { verdict: "BLOCK", action: "WAIT", reasons: ["REFERENCE_PRICE_DIVERGENCE"] };
+  }
   const impact = n(metrics.estimatedPriceImpact);
   const maxImpact = n(policy.maxPriceImpact);
   if (impact !== undefined && maxImpact !== undefined && impact > maxImpact) {

@@ -30,6 +30,15 @@ export type EvidenceCheck = {
   detail: string;
 };
 
+/** L3 signal: a fact with its source. Policy decides what it means. */
+export type Signal = {
+  id: "STYLE_DRIFT" | "REVENGE_PATTERN" | "REFERENCE_DIVERGENCE";
+  level: "info" | "caution" | "alert";
+  value?: number;
+  detail: string;
+  source: string;
+};
+
 /** PACT's paper copy of a plan: entry from a Flash quote, outcome from market candles. */
 export type ShadowCopy = {
   status: "NOT_COPYABLE" | "WAITING_ENTRY" | "OPEN" | "STOPPED" | "TARGET" | "EXPIRED";
@@ -206,6 +215,8 @@ export type Policy = {
   minLeaderEvidence?: "PLAN_MATCHED" | "ONCHAIN_VERIFIED";
   /** Copy only leaders whose paper copies have settled (probation, handbook R15). */
   requireGraduatedLeader?: boolean;
+  /** Largest gap allowed between Flash's quote (or the chart) and the oracle at quote time. */
+  maxReferenceDivergence?: string;
   minRewardRisk: number;
   askHumanUsd?: number;
   /** Assist may prepare policy-compliant review items; it never receives signing authority. */
@@ -259,6 +270,8 @@ export type Proposal = {
   limitNotionalPrice?: string;
   triggers?: Trigger[];
   demoCase?: DemoCase;
+  /** Plan-time signals (style drift, revenge pattern) as they stood when the copy was decided. */
+  signals?: Signal[];
   createdAt: string;
 };
 
@@ -374,6 +387,8 @@ export type StoredQuote = {
   allInPrice?: string;
   feeNotional?: string;
   costRatio?: string;
+  /** R11: oracle, chart and Flash prices at quote time. */
+  reference?: import("./signals").ReferenceCheck;
   attachedBracket?: {
     bracket: AttachedBracket;
     salt?: string;

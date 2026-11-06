@@ -1,3 +1,4 @@
+import { referenceAtQuote } from "@/lib/reference";
 import { requireOwner } from "@/lib/session";
 import { INTEGRATOR_FEE_BPS } from "@/lib/constants";
 import { executionMetrics, postQuote, quoteRequest } from "@/lib/flash";
@@ -76,7 +77,8 @@ export async function POST(req: Request) {
       });
     const quote = await postQuote(request);
     const metrics = executionMetrics(quote, proposal.side);
-    const executionDecision = decideExecution(proposal, policy, metrics);
+    const reference = await referenceAtQuote(proposal, Number(metrics.executionPrice), policy.maxReferenceDivergence);
+    const executionDecision = decideExecution(proposal, policy, metrics, reference);
     if (executionDecision) {
       updateDecision(proposal.id, executionDecision);
       return Response.json(
@@ -84,6 +86,7 @@ export async function POST(req: Request) {
           error: "quote no longer satisfies this follower's copy policy",
           decision: executionDecision,
           metrics,
+          reference,
         },
         { status: 409 },
       );
@@ -144,6 +147,7 @@ export async function POST(req: Request) {
       proposalId: proposal.id,
       quoteId: quote.quoteId,
       qty,
+      reference,
       orderTypedData: quote.evm?.orderTypedData,
       approveTx: quote.evm?.approveTx
         ? {

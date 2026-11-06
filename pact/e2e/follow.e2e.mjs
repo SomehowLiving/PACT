@@ -443,6 +443,33 @@ try {
     await page.screenshot({ path: join(OUT, "7-leader-page.png"), fullPage: true });
     await ctx.close();
   }
+
+  // ---------- Case 6: signals ----------
+  console.log("\n# Case 6: three prices at quote time; a leader suddenly trades 4x their usual size");
+  {
+    const quoted = (await api(`/api/state?follower=${a.address}`)).json?.quotes?.[copy1.id]?.reference;
+    check(
+      "the follower's real quote recorded Chainlink, the chart and Flash side by side",
+      quoted?.oracle > 0 && quoted?.chart > 0 && quoted?.quote > 0 && quoted?.status === "OK",
+      quoted ? `${quoted.status}: ${quoted.detail}` : "missing",
+    );
+    const live = await api("/api/reference");
+    check("the live three-price check answers", live.status === 200 && ["OK", "DIVERGED"].includes(live.json?.status), live.json?.detail);
+
+    const e = privateKeyToAccount(generatePrivateKey());
+    await followLeader(e);
+    const big = await publish({ orderType: "twap", qty: "400", durationSeconds: 600, ...(await disciplinedPlan()) });
+    const st = await api(`/api/state?follower=${e.address}`);
+    const copy = st.json.proposals.find((p) => p.strategyId === big.json.strategy.id && p.follower.toLowerCase() === e.address.toLowerCase());
+    const drift = copy?.signals?.find((s) => s.id === "STYLE_DRIFT");
+    const decision = st.json.decisions[copy?.id];
+    check("a plan at 4x the leader's usual size raises a style-drift alert", drift?.level === "alert", drift?.detail);
+    check(
+      "a proportional copy is scaled back to the usual size and says why",
+      decision?.reasons?.includes("LEADER_SIZE_OUT_OF_CHARACTER") && Number(copy.qty) < 400 * 0.25,
+      `${decision?.verdict} ${decision?.action} qty ${copy?.qty} · ${decision?.reasons?.join(", ")}`,
+    );
+  }
 } finally {
   await browser.close();
 }

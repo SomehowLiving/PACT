@@ -39,6 +39,8 @@ import {
 } from "wagmi";
 import { apiFetch } from "@/lib/api";
 import { EvidenceBadge } from "@/components/pages/discover-parts";
+import { ReferencePrices } from "@/components/ReferencePrices";
+import { SignalList } from "@/components/SignalList";
 
 const PREVIEW_POLICY = defaultPolicy(
   "0x0000000000000000000000000000000000000000",
@@ -516,6 +518,13 @@ export function ReviewWorkspace({
               />
               <KV k="Invalidation" v={proposal.invalidation?.trim() || "not declared"} wrap />
             </dl>
+            <div className="mt-3 space-y-3">
+              <SignalList signals={proposal.signals} />
+              <ReferencePrices
+                check={state?.quotes[proposal.id]?.reference}
+                title={state?.quotes[proposal.id]?.reference ? "Prices at your quote" : "Three prices, live"}
+              />
+            </div>
           </Panel>
         </div>
 

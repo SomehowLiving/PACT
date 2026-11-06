@@ -486,3 +486,29 @@ graduates and the follower's held copies are released). Live: a plan at today's 
 paper-entered on a real Flash quote and marked on real GeckoTerminal candles. 134 unit,
 8 live, e2e 25/25 (Case 5: paper entry at +40 bps / 0.18 % cost, probation reported, leader
 page renders with paper rows and the contradicted plan).
+
+## Phase 4: signals (Nov 6, 2026)
+
+Facts with a stated source, read by policy; a signal never decides on its own.
+
+| Rule | Signal (L3, `lib/signals.ts`) | Policy (L4) |
+| --- | --- | --- |
+| R11 reference divergence | three prices for WETH at quote time: **Chainlink ETH/USD on Base** (L0 `lib/oracle.ts`, read on chain, no key), the GeckoTerminal pool, and Flash's quoted market price; stale (> 25 min) or unreadable oracle = `UNAVAILABLE` | Flash or the chart further than `maxReferenceDivergence` (default 1%) from the oracle → WAIT `REFERENCE_PRICE_DIVERGENCE`. Unavailable is shown, not blocking. Stored on the quote and chained in `quote.stored` |
+| R8 style drift | this plan's size ÷ the median of ≥ 3 earlier plans on the same side and pair; ≥ 3× alert, ≥ 2× caution | a proportional copy is brought back to the usual size → MODIFY SCALE `LEADER_SIZE_OUT_OF_CHARACTER`; fixed and stop-risk sizes are already the follower's own, so they keep it and show the signal |
+| R9 revenge pattern | a re-entry on the same pair and side within 24 h of a stop-out (PACT's paper copy), bigger = alert | alert → REVIEW `LEADER_REVENGE_PATTERN` |
+
+Why Chainlink and not Pyth: Pyth's Hermes has required an API key since 26 Aug 2026 (the
+live call returned 401). Chainlink's Base feed updates on a 0.15% move or a 20-minute
+heartbeat, which is fine for a 1% check and is not used as an execution price.
+
+UI: `ReferencePrices` (live from `GET /api/reference`, cached 15 s, or the stored quote-time
+check) and `SignalList` on the Trade plan panel and the review page; Mandate "Max gap to the
+oracle".
+
+Tests: `lib/signals.test.ts` (style drift needs history, ignores other sides and later plans,
+levels; revenge within / outside 24 h, bigger vs same; three prices agree, disagree, stale,
+unreadable; quote-time WAIT only on disagreement; revenge held; through the store a 4× plan
+gives a proportional follower 0.1 × the usual $100, MODIFY SCALE, while a fixed $20 follower
+keeps $20). Live: Chainlink, the chart and a Flash quote agree within bps. 140 unit, 9 live,
+e2e 29/29 (Case 6: the follower's real quote recorded Flash +5 bps and chart +9 bps vs
+Chainlink; a 4× plan raised the alert and the copy was $25 instead of $100).

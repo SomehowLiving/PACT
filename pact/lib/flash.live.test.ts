@@ -144,6 +144,16 @@ describe.skipIf(!LIVE)("Flash live quotes (no orders)", () => {
     if (marked?.status === "OPEN") expect(marked.markPrice).toBeGreaterThan(0);
   }, 30_000);
 
+  it("three prices agree in a calm market: Chainlink on Base, the chart and a Flash quote (R11)", async () => {
+    const { referenceAtQuote } = await import("./reference");
+    const quote = await postQuote(quoteRequest({ targetAsset: weth, contraAsset: usdc, side: "buy", qty: "100", orderType: "market", funderAddress: FUNDER }));
+    const check = await referenceAtQuote({ chain: "base", targetAsset: weth }, Number(executionMetrics(quote, "buy").executionPrice), "0.01");
+    expect(check?.oracle).toBeGreaterThan(0);
+    expect(check?.chart).toBeGreaterThan(0);
+    expect(["OK", "DIVERGED"]).toContain(check?.status); // never UNAVAILABLE: the oracle is fresh
+    expect(Math.abs(check!.quoteVsOracleBps!)).toBeLessThan(300);
+  }, 30_000);
+
   it("marks an open position at Flash's exit quote, net of fees and below the mid", async () => {
     const { exitMark } = await import("./marks");
     const { assetPrice } = await import("./price");

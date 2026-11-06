@@ -2,6 +2,8 @@
 
 import { useDeskContext, useMine } from "@/components/DeskContext";
 import { TradingChart, useMarket } from "@/components/TradingChart";
+import { ReferencePrices } from "@/components/ReferencePrices";
+import { SignalList } from "@/components/SignalList";
 import { ActionBadge, Addr, AddrAvatar, Empty, LayerTag, StatusBadge, type Tone } from "@/components/ui";
 import { reasonLabel, usd } from "@/lib/format";
 import type { Timeframe } from "@/lib/market";
@@ -398,6 +400,9 @@ function PlanRail({
           </div>
 
           <MandateCheck proposal={proposal} decision={decision} policy={policy} />
+
+          <SignalList signals={proposal.signals} />
+          <ReferencePrices check={state?.quotes[proposal.id]?.reference} title={state?.quotes[proposal.id]?.reference ? "Prices at your quote" : "Three prices, live"} />
 
           <div className="flex gap-2">
             <Link
