@@ -311,7 +311,7 @@ PACT must not claim:
 ## Phase 0 hardening (Nov 6, 2026)
 
 Fixes from the Flash docs/OpenAPI audit and a source study of other Flash apps
-(see `../pact-architecture.md`). Each is covered by a unit test; the request
+(see `../docs/architecture.md`). Each is covered by a unit test; the request
 shapes are also checked against the live API by `FLASH_LIVE=1 npx vitest run lib/flash.live.test.ts`
 (quotes only, no orders).
 

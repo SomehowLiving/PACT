@@ -11,3 +11,15 @@ hackathon/app/
 pact/node_modules/
 pact/.next/
 pact/coverage/
+
+# Personal transcripts, ideation and research notes (kept locally, never committed)
+chat.md
+sessions/
+ideation/
+reports/
+*.xlsx
+*.xls
+
+# Local helper scripts and Vercel link
+pact/e2e/.shot*.mjs
+pact/.vercel/

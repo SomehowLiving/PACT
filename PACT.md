@@ -10,7 +10,7 @@ a session key they created and limited on chain), and Flash executes it.
 PACT does not hold a private key, custody funds, promise returns, or claim that copying a
 profitable leader makes a follower profitable.
 
-Built for ETHGlobal Mumbai 2026. **Live:** https://ethglobal-pact.vercel.app
+**Live:** https://pactfi.vercel.app · **Documentation:** [`docs/`](docs/README.md)
 
 > **Status (Nov 6, 2026).** Everything below is built and covered by tests. The follower
 > flow has been run end to end against live Flash on Base and Arc with throwaway wallets:
@@ -547,7 +547,7 @@ DEMO data is seeded, labelled DEMO everywhere, and read-only.
 - `pact/CRITIQUE_AND_WORLD_DECISION.md`: critique response, Flash facts, World ID decision.
 - `pact/FOLLOWER_OUTCOME_STRATEGY.md`: follower-risk product strategy.
 - `pact/AGENT_AUTOMATION_ARCHITECTURE.md`: Assist and Autopilot authority model.
-- `pact-architecture.md`: layer-by-layer architecture.
+- `docs/`: the product documentation (concepts, formulas, policy, execution, leaders, security, architecture, API, operations).
 
 External sources:
 

@@ -1,30 +1,73 @@
-# ETHGlobal Mumbai 2026 — research pack
+# PACT documentation
 
-**Access date:** 2026-10-13  
-**Event (official listing):** 5–7 November 2026, Mumbai, India, in-person hackathon  
-**Recommendation:** Build a **narrow PACT** (policy-aware copy trading on Definitive Flash). Do not build the full original PACT. See [06-build-plan.md](06-build-plan.md).
+**PACT is non-custodial copy trading where the follower owns the rules.**
 
-Start here, then open the file that matches the question.
+Leaders publish structured trade plans. Each follower's own mandate decides what to copy,
+how much, and how to exit. The follower signs every order in their own wallet (or through a
+session key they created and limited on chain), and [Definitive Flash](https://flash.definitive.fi)
+executes it. PACT never holds a private key or custodies funds.
 
-| File | What it answers |
+Live app: **https://pactfi.vercel.app**
+
+```mermaid
+flowchart LR
+    L["Leader<br/>publishes a plan"] --> P["PACT<br/>evidence · policy · guard"]
+    F["Follower<br/>owns a mandate"] --> P
+    P -->|"COPY / SCALE<br/>(quote + checks)"| W["Follower's wallet<br/>signs"]
+    W --> X["Definitive Flash<br/>executes"]
+    X -->|"fills, status"| P
+    P -->|"receipts, evidence log"| F
+```
+
+## Start here
+
+| If you want to… | Read |
 | --- | --- |
-| [01-event-sponsors.md](01-event-sponsors.md) | Dates, rules, every Mumbai sponsor, prize table |
-| [02-winners-and-patterns.md](02-winners-and-patterns.md) | Tokyo 2026 and related winners; what judges reward |
-| [03-ecosystem-and-gaps.md](03-ecosystem-and-gaps.md) | Themes, funding, four opportunity types |
-| [04-pact-evaluation.md](04-pact-evaluation.md) | Verdict on PACT vs competitors and Flash docs |
-| [05-competing-concepts.md](05-competing-concepts.md) | Three concepts (narrow PACT, prize-max, unconventional) |
-| [06-build-plan.md](06-build-plan.md) | Pitch, architecture, 72-hour plan, demo script |
-| [07-source-log.md](07-source-log.md) | URLs, dates, claims |
+| Understand what PACT is and the words it uses | [Concepts](concepts.md) |
+| Follow one copy from plan to fill | [How it works](how-it-works.md) |
+| Understand the trading rules and the maths | [Trading principles and formulas](trading-principles.md) |
+| See every decision rule and reason code | [Policy engine](policy.md) |
+| See how orders reach Flash and come back | [Execution](execution.md) |
+| Publish plans as a leader, or judge a leader | [Leaders](leaders.md) |
+| Understand who can sign what, and what PACT checks | [Security and trust model](security.md) |
+| See the system's layers and modules | [Architecture](architecture.md) |
+| Integrate with the HTTP API | [API reference](api.md) |
+| Run, configure, test or deploy PACT | [Operations](operations.md) |
 
-Workbook: `../ETHGlobal_Mumbai_2026_Research.xlsx`  
-Long report: `../reports/ETHGlobal Mumbai 2026 strategy.md`  
-**Build next:** [`../guides/README.md`](../guides/README.md) (Flash API, policy, hour-zero). Specs: [`../specs/`](../specs/).  
-**Talk applied (MVS / SLIP / OSS):** [`../guides/09-company-gap-and-oss.md`](../guides/09-company-gap-and-oss.md).
+## What PACT does differently
 
-## One-screen decision
+- **Follower-owned mandates.** Up to ten leaders, each with its own sizing, daily sleeve,
+  order types and exit, inside portfolio-wide caps the follower sets.
+- **Policy before price.** Every plan gets a decision (COPY, SCALE, WAIT, REVIEW or
+  DECLINE) with its reasons before anything is quoted. A blocked plan never reaches Flash.
+- **The browser checks what you sign.** Recipient, tokens, amounts, spender, fee vault and
+  deadline in Flash's payload are re-checked in the page before the wallet is asked.
+- **Your exit, not the leader's.** A Flash TP/SL pair sits on the follower's own position.
+  PACT never mirrors a leader's exit.
+- **Evidence, not claims.** A leader's plan can be backed by their own Flash order and Base
+  trades; a plan the leader's own execution contradicts is held for every follower.
+- **Follower fairness.** PACT flags a leader who traded well before publishing at a better
+  price, or whose asset left their wallet while followers' copies were filling. A repeat
+  holds new copies.
+- **Verified humans.** With World ID a leader proves one unique human is behind their
+  wallet; one human backs one leader address.
+- **Everything on the record.** Every decision, quote, order and finding joins an
+  append-only, hash-chained evidence log that the browser verifies.
 
-1. **Best published prize for you:** Definitive — Best Use of Flash Advanced Orders in a Social App ($3,500). Criteria are live. Copy trading is an encouraged example.
-2. **Do not clone Tokyo 2026:** DSAP, Axis, AegisNet, Izanagi already shipped “agent + policy + ENS + World ID.” Mumbai’s unique opening is **social copy trading on Flash**, which those projects did not build.
-3. **PACT as originally scoped is too wide.** Cut Arkiv and ENS from the MVP unless those prize pages publish before the event and the integration is the product, not decoration.
-4. **Watch unpublished $15k pools** (World, ENS, Arkiv, 0G, Arc, Hedera, Chainlink, EF, Uniswap, Whitechain). Recheck https://ethglobal.com/events/mumbai/prizes on 1 Nov and at kickoff.
-5. **Chamber (formerly dHEDGE) already sells onchain vault guardrails for AI traders.** PACT’s wedge is non-custodial Flash orders in the follower’s wallet, not another vault.
+## What PACT will never do
+
+- Hold your private key or your funds.
+- Place a trade you did not sign, or that a session key you created and limited on chain
+  did not sign.
+- Invent PnL, win rates or leader rankings. Numbers come from Flash fills and on-chain
+  records, or they are not shown.
+- Claim to see what it cannot: it reads Flash and Base, not centralized exchanges or other
+  chains.
+
+## Status
+
+PACT runs end to end against live Flash on Base and Arc: real quotes, the browser wallet
+guard, real EIP-712 signatures, and Flash verifying them. World ID is integrated and tested
+on World's staging network. Still to record: a funded mainnet fill, a funded Arc fill, a
+production World ID proof from World App, and a live Autopilot session (its contracts are
+not deployed yet). PACT is unaudited software and not investment advice.

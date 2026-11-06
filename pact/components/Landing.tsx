@@ -113,7 +113,7 @@ export function Landing() {
         <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-[520px] bg-[radial-gradient(60%_60%_at_70%_0%,color-mix(in_oklab,var(--accent)_18%,transparent),transparent)]" />
         <div className="relative mx-auto grid max-w-[1180px] items-center gap-12 px-4 pb-10 pt-14 md:px-8 md:pt-20 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
           <div>
-            <div className="text-[12px] uppercase tracking-[0.16em] text-accent">ETHGlobal Mumbai 2026 · built on Definitive Flash</div>
+            <div className="text-[12px] uppercase tracking-[0.16em] text-accent">Non-custodial copy trading · built on Definitive Flash</div>
             <h1 className={`${SERIF} mt-4 text-[48px] font-medium leading-[1.02] md:text-[68px]`}>
               Copy the plan.
               <br />
@@ -292,7 +292,7 @@ export function Landing() {
       <footer className="border-t border-line">
         <div className="mx-auto flex max-w-[1180px] flex-wrap items-center justify-between gap-3 px-4 py-6 text-[12.5px] text-mute md:px-8">
           <span className={`${SERIF} text-[18px] text-ink`}>PACT⁺</span>
-          <span>Non-custodial copy trading on Definitive Flash · ETHGlobal Mumbai 2026</span>
+          <span>Non-custodial copy trading on Definitive Flash</span>
           <span className="flex gap-4">
             <Link href="/desk" className="hover:text-ink">
               Desk
