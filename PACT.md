@@ -345,6 +345,24 @@ wallet signs permits and orders, and Flash verifies the signatures.
 Deterministic, optional review queue: it maps stored policy results to *prepare review*,
 *hold* or *decline*. It cannot change a policy, request a quote, sign, submit or cancel.
 
+### Real-world data
+
+- **Live market strip** on Discover, Portfolio and Orders: the WETH/USDC pool price, 24h
+  change, 24h volume and liquidity (Uniswap v3 on Base via GeckoTerminal), Chainlink ETH/USD
+  on Base with its age, and Flash's quote against the oracle. A failed read retries in 5 s.
+- **On-chain profile for every leader** (profile Overview, and "On Base" in the Discover
+  leader panel), read live from Base: ETH, USDC and WETH balances, transactions sent,
+  contract or plain wallet, USDC and WETH in and out over the last 6 hours, and the last
+  token move, with a Basescan link (`lib/wallet-facts.ts`, `/api/wallets/[address]`,
+  cached 2 minutes). These are facts about the wallet, not a performance record. DEMO
+  addresses are never read and say so.
+- **Live-priced DEMO plans:** reloading the demo prices every DEMO plan off Chainlink's
+  ETH/USD (entry at market, stop −2%, target +4%, resting limits 0.5% under), with the same
+  policy outcomes as before. The Publish ticket also starts at today's price.
+- Log reads (`eth_getLogs`, used by the wallet profile and the follower-fairness check) go
+  to an endpoint that serves them: `mainnet.base.org` rate-limits them to nothing, so PACT
+  uses `base-rpc.publicnode.com` (override with `BASE_LOGS_RPC_URL`).
+
 ### Watchlist
 
 Star a leader to watch without following. A per-browser convenience (localStorage);
@@ -400,12 +418,12 @@ Full run, Nov 6, 2026 (no funds; throwaway wallets):
 | Suite | Result | What it covers |
 | --- | --- | --- |
 | Typecheck, lint, production build | pass | — |
-| Unit (`npm test`) | 169 passed | Policy, sizing, guard, evidence chain, positions, stream, signals, conduct, World ID, Autopilot, copyability |
+| Unit (`npm test`) | 173 passed | Policy, sizing, guard, evidence chain, positions, stream, signals, conduct, World ID, Autopilot, copyability |
 | Live Flash (`FLASH_LIVE=1`) | 9 passed | Real Flash quotes (limit with bracket, TWAP with protection, Arc), the order WebSocket, a real Base transaction, a paper copy on real candles, three prices, an exit mark; no orders placed |
 | Foundry (`forge test`) | 14 passed, plus the Base-fork Permit2 test | Session account and factory |
 | Anvil (`PACT_ANVIL=1`) | 3 passed | PACT's encoders against the deployed contracts |
 | Follow e2e (`npm run e2e`) | 48/48 | Sessions; connect, guard, sign, submit to Flash; tampered quote refused; BLOCK locked; leader evidence contradicted; paper copies; three prices; style drift; Arc; Autopilot dry run; six leaders; conduct hold |
-| UI e2e (`node e2e/ui.e2e.mjs`) | 37 checks | One navigation, nothing listed twice, URL state, back and forward, routes, landing, watchlist, Settings tabs, tablet drawer |
+| UI e2e (`node e2e/ui.e2e.mjs`) | 39/39 | One navigation, nothing listed twice, URL state, back and forward, routes, landing, watchlist, Settings tabs, live market strip, on-chain profile, tablet drawer |
 | World e2e (`npm run e2e:world`, staging) | 22/22 | Leader verification in the browser with World's simulator, one human per leader, wrong-wallet and replay refusals, verified-only rule, Autopilot approval |
 
 Not yet proven: a funded mainnet fill and its protection, a funded Arc fill, a production
@@ -425,6 +443,7 @@ npm run dev                  # http://localhost:3000
 | --- | --- |
 | `FLASH_API_KEY` | Flash quotes and orders (required) |
 | `EVM_RPC_URL`, `NEXT_PUBLIC_EVM_RPC_URL` | Base RPC (defaults to the public endpoint) |
+| `BASE_LOGS_RPC_URL` | Base endpoint for log reads (default `https://base-rpc.publicnode.com`) |
 | `NEXT_PUBLIC_FLASH_VAULT` | Pin the integrator fee vault in the wallet guard |
 | `FLASH_BUILDER_CODE` | Optional Flash builder code |
 | `PACT_SESSION_SECRET` | Session cookie key (generated into the store folder if unset) |

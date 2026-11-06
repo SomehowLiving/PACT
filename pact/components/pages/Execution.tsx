@@ -1,5 +1,6 @@
 "use client";
 
+import { MarketStrip } from "@/components/LiveData";
 import { useDeskContext } from "@/components/DeskContext";
 import { ActionBadge, AddrAvatar, Empty, KV, PageHeader, Planned, StatusBadge, type Tone, leaderName } from "@/components/ui";
 import { mandateFor } from "@/components/pages/following-actions";
@@ -156,6 +157,7 @@ export function Execution() {
   return (
     <div>
       <PageHeader title="Orders" description="Every copy you signed: its Flash order, fills, the policy that allowed it, and the evidence behind it." />
+      <MarketStrip />
 
       {!follower ? (
         <div className="panel">

@@ -1,5 +1,6 @@
 "use client";
 
+import { MarketStrip, OnchainPanel } from "@/components/LiveData";
 import { useDeskContext } from "@/components/DeskContext";
 import { ActionBadge, AddrAvatar, Empty, LayerTag, leaderName, PageHeader, StatusBadge, type SortDir, type Tone } from "@/components/ui";
 import { activePlans, formatRR } from "@/components/pages/discover-parts";
@@ -310,6 +311,7 @@ export function Discover({ scope = "all" }: { scope?: "all" | "watchlist" } = {}
           ) : (
             <PageHeader title="Discover Leaders" description="Explore traders publishing structured, verifiable trade plans on PACT." />
           )}
+          <MarketStrip />
 
           <div className="flex gap-3">
             <label className="flex h-12 min-w-0 flex-1 items-center gap-3 rounded-full border border-line bg-panel-2 px-5 focus-within:border-accent">
@@ -645,6 +647,9 @@ function LeaderPanel({
               <dt className="text-mute">Last plan</dt>
               <dd className="text-right text-ink">{relativeTime(row.lastPlanAt)}</dd>
             </dl>
+            <div className="mt-4">
+              <OnchainPanel address={row.leader} compactView />
+            </div>
           </>
         ) : null}
 

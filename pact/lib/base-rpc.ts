@@ -13,6 +13,15 @@ export const baseClient = createPublicClient({
   transport: http(process.env.EVM_RPC_URL || process.env.NEXT_PUBLIC_EVM_RPC_URL || "https://mainnet.base.org"),
 });
 
+/**
+ * Log reads (eth_getLogs) need an endpoint that serves them: mainnet.base.org rate-limits
+ * them to nothing. publicnode serves six-hour Base ranges for free; BASE_LOGS_RPC_URL overrides.
+ */
+export const logsClient = createPublicClient({
+  chain: base,
+  transport: http(process.env.BASE_LOGS_RPC_URL || "https://base-rpc.publicnode.com"),
+});
+
 type Client = Pick<typeof baseClient, "getTransactionReceipt" | "getBlock">;
 
 /** keccak256("Transfer(address,address,uint256)") */
@@ -80,7 +89,7 @@ export async function tokenOutflows(
   fromMs: number,
   toMs: number,
   decimals = 18,
-  client: Pick<typeof baseClient, "getBlock" | "getLogs"> = baseClient,
+  client: Pick<typeof baseClient, "getBlock" | "getLogs"> = logsClient,
 ): Promise<{ at: number; units: number; tx: string }[]> {
   const head = await client.getBlock({ blockTag: "latest" });
   const headNo = head.number;

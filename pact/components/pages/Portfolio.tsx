@@ -1,5 +1,6 @@
 "use client";
 
+import { MarketStrip } from "@/components/LiveData";
 import { useDeskContext, useMine } from "@/components/DeskContext";
 import { ActionBadge, AddrAvatar, Empty, LayerTag, Meter, PageHeader, Panel, StatusBadge, type Tone, leaderName } from "@/components/ui";
 import { mandateFor } from "@/components/pages/following-actions";
@@ -198,6 +199,7 @@ export function Portfolio() {
   return (
     <div>
       <PageHeader title="Portfolio" description="Your copied positions, exposure and results across followed leaders." />
+      <MarketStrip />
 
       {!follower ? (
         <div className="panel">

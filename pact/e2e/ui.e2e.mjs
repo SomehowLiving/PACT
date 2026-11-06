@@ -164,6 +164,19 @@ const fairness = await p.locator(".panel", { hasText: "Follower fairness" }).fir
 check("the profile explains the pattern, the hold and the limits", /Sold into followers' buys ×2/.test(fairness) && fairness.includes("holds every follower") && fairness.includes("Base only"), fairness.replace(/\n/g, " · ").slice(0, 160));
 await p.screenshot({ path: OUT + "12-conduct.png" });
 
+// Real-world data: the live market strip, and each leader's wallet on Base (DEMO addresses say so).
+const liveOn = [];
+for (const r of ["/discover", "/portfolio", "/execution"]) {
+  await p.goto(`${BASE}${r}`, { waitUntil: "networkidle" });
+  const strip = p.locator('[aria-label="Live market"]');
+  await strip.getByText(/^\$[0-9,]+\.[0-9]{2}$/).first().waitFor({ timeout: 20000 }).catch(() => undefined);
+  if (/WETH \/ USDC\s*\$[0-9,]+/.test(await strip.innerText().catch(() => ""))) liveOn.push(r);
+}
+check("the live market strip shows a real price on Discover, Portfolio and Orders", liveOn.length === 3, liveOn.join(", "));
+await p.goto(`${BASE}/leaders/0x1111111111111111111111111111111111111111`, { waitUntil: "networkidle" });
+await p.getByText("On-chain profile").first().waitFor({ timeout: 15000 });
+check("a DEMO leader's on-chain profile says it has no real wallet", (await p.getByText("A DEMO address: no real wallet").count()) > 0);
+
 await p.goto(`${BASE}/execution`, { waitUntil: "networkidle" });
 const ordersText = await p.locator("main").innerText();
 check("Orders page loads (table or empty state)", ordersText.includes("Total Orders") || ordersText.includes("No Flash orders yet"));

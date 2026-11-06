@@ -1,5 +1,6 @@
 "use client";
 
+import { OnchainPanel } from "@/components/LiveData";
 import { CopyDrawer, type DrawerTab } from "@/components/pages/copy-drawer";
 import { FollowButton } from "@/components/pages/Discover";
 import { EvidenceBadge, formatRR, GradeBadge, SideType } from "@/components/pages/discover-parts";
@@ -153,6 +154,7 @@ export function LeaderPage({ address }: { address: string }) {
       </div>
       {r && tab === "overview" ? (
         <div className="space-y-4">
+          <OnchainPanel address={address} />
           <MetricStrip
             metrics={[
               { label: "Plans published", value: r.plans, sub: `${r.backed} backed by own execution` },

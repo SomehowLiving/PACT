@@ -1,12 +1,20 @@
+import { ethUsdReference } from "@/lib/oracle";
 import { seedDemo } from "@/lib/store";
 
 export const dynamic = "force-dynamic";
 
 // Reloads the demo desks only; real wallets' records are kept (see resetDemoData).
 export async function POST() {
-  const seeded = await seedDemo();
+  // DEMO plans are priced off today's market (Chainlink ETH/USD on Base); if it is unreachable,
+  // they fall back to fixed levels and still work.
+  const price = await Promise.race([
+    ethUsdReference().then((r) => r.price).catch(() => undefined),
+    new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), 4000)),
+  ]);
+  const seeded = await seedDemo({ price });
   return Response.json({
     ok: true,
+    pricedAt: price ?? null,
     allow: seeded.allow.decision,
     block: seeded.block.decision,
     allowProposalId: seeded.allow.proposal.id,

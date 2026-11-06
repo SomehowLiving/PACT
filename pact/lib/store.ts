@@ -192,8 +192,15 @@ function seedDesks(steady: `0x${string}`, leader: `0x${string}`) {
 }
 
 /** Reload the demo scenario. Only demo addresses are written; real desks are left alone. */
-export async function seedDemo() {
+/**
+ * Seeds the DEMO desks. `price` is today's WETH price (the demo route passes Chainlink's
+ * ETH/USD on Base); every plan level is a ratio of it, so demo charts and copies sit on the
+ * live market. Without it (unit tests) the levels are around $2,500, so decisions are stable.
+ */
+export async function seedDemo(opts: { price?: number } = {}) {
   resetDemoData();
+  const px = opts.price && opts.price > 0 ? opts.price : 2500;
+  const at = (f: number) => (px * f).toFixed(2);
   const leader = DEMO_LEADER;
   const follower = DEMO_FOLLOWER;
   const pullbackLeader = DEMO_PULLBACK_LEADER;
@@ -207,9 +214,9 @@ export async function seedDemo() {
     expiresAt: new Date(Date.now() + 4 * 60 * 60 * 1_000).toISOString(),
     invalidation: "Do not chase outside the stated entry window.",
     maxFollowerNotionalUsd: 60,
-    entryReferencePrice: "2500",
-    stopLossPrice: "2450",
-    takeProfitPrice: "2600",
+    entryReferencePrice: at(1),
+    stopLossPrice: at(0.98),
+    takeProfitPrice: at(1.04),
     protectionExpiresAt: new Date(Date.now() + 24 * 60 * 60 * 1_000).toISOString(),
   };
   const twap = addStrategy({ ...base, ...plan, orderType: "twap", qty: "25", durationSeconds: 600 });
@@ -261,7 +268,7 @@ export async function seedDemo() {
     demoCase: "SLEEVE_SCALE",
     orderType: "limit",
     qty: "120",
-    limitNotionalPrice: "2500",
+    limitNotionalPrice: at(0.995),
   });
   const chase = addStrategy({
     ...base,
@@ -286,15 +293,15 @@ export async function seedDemo() {
     expiresAt: new Date(Date.now() - 60_000).toISOString(),
     orderType: "limit",
     qty: "20",
-    limitNotionalPrice: "2500",
+    limitNotionalPrice: at(0.995),
   });
   const lowRewardRisk = addStrategy({
     ...base,
     ...plan,
     title: "Low reward:risk plan",
     demoCase: "LOW_RR_CAUTION",
-    stopLossPrice: "2450",
-    takeProfitPrice: "2550",
+    stopLossPrice: at(0.98),
+    takeProfitPrice: at(1.02),
     orderType: "twap",
     qty: "20",
     durationSeconds: 600,
@@ -306,7 +313,7 @@ export async function seedDemo() {
     demoCase: "EVIDENCE_REVIEW",
     orderType: "limit",
     qty: "20",
-    limitNotionalPrice: "2500",
+    limitNotionalPrice: at(0.995),
   });
   const highBeta = addStrategy({
     ...base,
@@ -333,13 +340,13 @@ export async function seedDemo() {
   const pastA = addStrategy({ ...dumpBase, title: "Breakout call · leader four", expiresAt: new Date(Date.now() - 30 * hour).toISOString() });
   const pastB = addStrategy({ ...dumpBase, title: "Second breakout · leader four", expiresAt: new Date(Date.now() - 6 * hour).toISOString() });
   addStrategy({ ...dumpBase, title: "Momentum entry · leader four" });
-  const at = (h: number) => new Date(Date.now() - h * hour).toISOString();
+  const ago = (h: number) => new Date(Date.now() - h * hour).toISOString();
   await setLeaderConduct(
     summarize(
       DEMO_DUMP_LEADER,
       [
-        { strategyId: pastA.id, title: pastA.title, sellIntoFlow: { windowStart: at(48), windowEnd: at(47), followerUnits: 0.42, soldUnits: 0.36, ratio: 0.9, basis: "leader position", flagged: true } },
-        { strategyId: pastB.id, title: pastB.title, frontRun: { leadMinutes: 95, leaderPrice: 2390, followerPrice: 2462, advantageBps: 301, flagged: true }, sellIntoFlow: { windowStart: at(20), windowEnd: at(19), followerUnits: 0.51, soldUnits: 0.4, ratio: 0.8, basis: "leader position", flagged: true } },
+        { strategyId: pastA.id, title: pastA.title, sellIntoFlow: { windowStart: ago(48), windowEnd: ago(47), followerUnits: 0.42, soldUnits: 0.36, ratio: 0.9, basis: "leader position", flagged: true } },
+        { strategyId: pastB.id, title: pastB.title, frontRun: { leadMinutes: 95, leaderPrice: px * 0.956, followerPrice: px * 0.985, advantageBps: ((0.985 - 0.956) / 0.956) * 10_000, flagged: true }, sellIntoFlow: { windowStart: ago(20), windowEnd: ago(19), followerUnits: 0.51, soldUnits: 0.4, ratio: 0.8, basis: "leader position", flagged: true } },
       ],
       "demo",
     ),

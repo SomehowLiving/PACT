@@ -808,3 +808,23 @@ first clean scan re-decided every waiting copy of the leader, dropping their sav
 - `PACT.md` rewritten from what is built and tested now (features, architecture, routes,
   verification, env, runbooks, constraints, roadmap), keeping the market evidence.
 - UI e2e 37 checks (adds the landing page and `/desk`).
+
+## Real-world data across the terminal (Nov 6, 2026)
+
+- **Live market strip** (`components/LiveData.tsx`) on Discover, Portfolio and Orders: pool
+  price, 24h change, volume, liquidity (GeckoTerminal), Chainlink ETH/USD with its age, and
+  Flash vs oracle. Polls every minute; a failed read retries after 5 s.
+- **On-chain profile per leader** (`lib/wallet-facts.ts`, `GET /api/wallets/[address]`): real
+  Base balances (ETH, USDC, WETH), transactions sent, contract or EOA, USDC/WETH in and out
+  over 6 hours and the last token move, on the profile Overview and in the Discover panel.
+  DEMO addresses are not read. Log failures leave flows "not read", never zero.
+- **Live-priced DEMO plans**: `POST /api/demo` prices every DEMO plan off Chainlink
+  (fallback: fixed $2,500 levels, used by unit tests); same policy outcomes. The Publish
+  ticket starts at the live price unless edited.
+- **Found while building it:** `mainnet.base.org` answers every `eth_getLogs` with "request
+  limit reached", so the follower-fairness outflow read could never have worked on it. Log
+  reads now use `logsClient` (`base-rpc.publicnode.com`, verified for 6-hour ranges;
+  `BASE_LOGS_RPC_URL` overrides).
+
+Tests: `lib/live-data.test.ts` (4: balances and flows, DEMO not read, logs failing ≠ zero,
+live-priced demo keeps decisions). UI e2e 39/39; follow e2e 48/48; World e2e 22/22.

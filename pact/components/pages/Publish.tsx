@@ -9,7 +9,7 @@ import { assessLeaderPlan } from "@/lib/policy";
 import type { Chain, EvidenceCheck, LeaderEvidenceStatus, LeaderPlanGrade, OrderType, Side, Strategy } from "@/lib/types";
 import { isExpired, pairLabel, relativeTime } from "@/lib/views";
 import Link from "next/link";
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { apiFetch } from "@/lib/api";
 import { EvidenceBadge } from "@/components/pages/discover-parts";
 import { WorldVerifyPanel } from "@/components/WorldVerify";
@@ -64,6 +64,23 @@ export function Publish() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [tab, setTab] = useState<"all" | "mine">("all");
+  // Start the ticket at today's price (Flash's WETH quote), keeping anything the leader typed.
+  useEffect(() => {
+    let live = true;
+    void fetch("/api/health")
+      .then((r) => r.json())
+      .then((h: { price?: string | number }) => {
+        const p = Number(h.price);
+        if (!live || !(p > 0)) return;
+        setEntryReferencePrice((v) => (v === "2500" ? p.toFixed(2) : v));
+        setStopLossPrice((v) => (v === "2450" ? (p * 0.98).toFixed(2) : v));
+        setTakeProfitPrice((v) => (v === "2600" ? (p * 1.04).toFixed(2) : v));
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, []);
   const exit = orderType === "take-profit" || orderType === "stop-loss";
   const effectiveSide: Side = exit ? "sell" : side;
 
@@ -197,7 +214,7 @@ export function Publish() {
             </Field>
             {orderType === "limit" || orderType === "twap" ? (
               <Field label="Execution price bound" unit="USD / WETH" hint="Optional. Each follower may tighten it with their entry-drift limit.">
-                <input className="field" value={limitPrice} onChange={(e) => setLimitPrice(e.target.value)} placeholder="2300" inputMode="decimal" />
+                <input className="field" value={limitPrice} onChange={(e) => setLimitPrice(e.target.value)} placeholder={Number(entryReferencePrice) > 0 ? (Number(entryReferencePrice) * 0.99).toFixed(0) : "2300"} inputMode="decimal" />
               </Field>
             ) : null}
             {exit ? (
