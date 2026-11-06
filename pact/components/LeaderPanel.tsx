@@ -5,6 +5,7 @@ import { reasonLabel, shortAddr } from "@/lib/format";
 import { isLeaderPaused } from "@/lib/policy";
 import type { DeskState, Policy } from "@/lib/types";
 import { useState } from "react";
+import { apiFetch } from "@/lib/api";
 
 function bps(value: number) {
   return `${value >= 0 ? "+" : ""}${value.toFixed(1)} bps`;
@@ -55,7 +56,7 @@ export function LeaderPanel({
     setError(null);
     const others = (policy.pausedLeaders ?? []).filter((item) => item.toLowerCase() !== leader.toLowerCase());
     try {
-      const res = await fetch("/api/policy", {
+      const res = await apiFetch("/api/policy", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ ...policy, pausedLeaders: paused ? [...others, leader] : others }),

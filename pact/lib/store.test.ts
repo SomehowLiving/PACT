@@ -260,3 +260,41 @@ describe("follower leader pause", () => {
     expect(saved.pausedLeaders).toEqual([]);
   });
 });
+
+describe("demo reload", () => {
+  it("replaces the demo desks but keeps a real wallet's mandate, plan and mirrors", async () => {
+    const store = await freshStore();
+    await store.seedDemo();
+    const real = "0x1234567890abcdef1234567890abcdef12345678" as const;
+    const realLeader = "0xabcdef1234567890abcdef1234567890abcdef12" as const;
+    store.upsertPolicy({ ...defaultPolicy(real), follows: [realLeader, store.DEMO_LEADER] });
+    const plan = store.addStrategy({
+      leader: realLeader,
+      title: "Real plan",
+      thesis: "Not demo data.",
+      expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+      entryReferencePrice: "2500",
+      stopLossPrice: "2450",
+      takeProfitPrice: "2600",
+      protectionExpiresAt: new Date(Date.now() + 86_400_000).toISOString(),
+      chain: "base",
+      targetAsset: WETH,
+      contraAsset: USDC,
+      side: "buy",
+      orderType: "twap",
+      qty: "25",
+      durationSeconds: 600,
+    });
+    const mirror = await store.createProposal(plan.id, real);
+    const demoCount = store.snapshot().strategies.filter((s) => s.leader !== realLeader).length;
+
+    await store.seedDemo();
+    const state = store.snapshot();
+    expect(state.policies.some((p) => p.follower.toLowerCase() === real)).toBe(true);
+    expect(state.strategies.filter((s) => s.id === plan.id)).toHaveLength(1);
+    expect(state.proposals.some((p) => p.id === mirror.proposal.id)).toBe(true);
+    expect(state.decisions[mirror.proposal.id]).toBeDefined();
+    // Demo plans were replaced, not duplicated.
+    expect(state.strategies.filter((s) => s.leader !== realLeader)).toHaveLength(demoCount);
+  });
+});

@@ -4,7 +4,8 @@ import { useDesk, type DeskPayload } from "@/components/useDesk";
 import { defaultPolicy } from "@/lib/constants";
 import type { Policy } from "@/lib/types";
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import { useAccount } from "wagmi";
+import { useAccount, useSignMessage } from "wagmi";
+import { registerSignIn, signInWith } from "@/lib/api";
 
 const VIEW_KEY = "pact.viewAs";
 
@@ -61,6 +62,17 @@ export function DeskProvider({ children }: { children: ReactNode }) {
       /* storage unavailable */
     }
   }, []);
+
+  // Writes need a wallet session; the first write that hits a 401 asks the wallet to sign in.
+  const { signMessageAsync } = useSignMessage();
+  useEffect(() => {
+    if (!address) {
+      registerSignIn(null);
+      return;
+    }
+    registerSignIn(() => signInWith(address, (message) => signMessageAsync({ message })));
+    return () => registerSignIn(null);
+  }, [address, signMessageAsync]);
 
   const follower = viewAs === "wallet" ? address : viewAs;
   const { state, refresh } = useDesk(follower);

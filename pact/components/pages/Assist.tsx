@@ -6,6 +6,7 @@ import { reasonLabel } from "@/lib/format";
 import type { AutomationMode } from "@/lib/types";
 import Link from "next/link";
 import { useState } from "react";
+import { apiFetch } from "@/lib/api";
 
 type Recommendation = { proposalId: string; action: "PREPARE_REVIEW" | "HOLD" | "DECLINE"; headline: string; reasons: string[] };
 type Scan = { mode: AutomationMode; recommendations: Recommendation[]; constraints: string[] };
@@ -35,7 +36,7 @@ export function Assist() {
     setBusy("mode");
     setError(null);
     try {
-      const res = await fetch("/api/policy", {
+      const res = await apiFetch("/api/policy", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ ...policy, automationMode: next }),

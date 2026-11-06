@@ -2,12 +2,9 @@ import { seedDemo } from "@/lib/store";
 
 export const dynamic = "force-dynamic";
 
-export async function POST(req: Request) {
-  const body = (await req.json().catch(() => ({}))) as {
-    leader?: `0x${string}`;
-    follower?: `0x${string}`;
-  };
-  const seeded = await seedDemo(body);
+// Reloads the demo desks only; real wallets' records are kept (see resetDemoData).
+export async function POST() {
+  const seeded = await seedDemo();
   return Response.json({
     ok: true,
     allow: seeded.allow.decision,

@@ -1,3 +1,4 @@
+import { requireOwner } from "@/lib/session";
 import { policyFor, rebuildFor, snapshot, upsertPolicy } from "@/lib/store";
 import type { Policy } from "@/lib/types";
 
@@ -17,6 +18,8 @@ export async function POST(req: Request) {
   if (!body.follower) {
     return Response.json({ error: "follower required" }, { status: 400 });
   }
+  const denied = requireOwner(req, body.follower);
+  if (denied) return denied;
   const mandateLeaders = new Set((body.mandates ?? []).map((mandate) => mandate.leader.toLowerCase()));
   const mandatesValid =
     mandateLeaders.size === (body.mandates?.length ?? 0) &&

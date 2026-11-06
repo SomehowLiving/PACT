@@ -1,3 +1,4 @@
+import { requireOwner } from "@/lib/session";
 import { INTEGRATOR_FEE_BPS } from "@/lib/constants";
 import { listOrders, postOrder, type OrderBody } from "@/lib/flash";
 import {
@@ -36,6 +37,8 @@ export async function POST(req: Request) {
   if (!proposal) {
     return Response.json({ error: "proposal not found" }, { status: 404 });
   }
+  const denied = requireOwner(req, proposal.follower);
+  if (denied) return denied;
   const decision = decisionFor(proposal.id);
   if (!decision || decision.verdict === "BLOCK") {
     return Response.json(

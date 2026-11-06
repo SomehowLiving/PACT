@@ -9,6 +9,7 @@ import { assessLeaderPlan } from "@/lib/policy";
 import type { Chain, LeaderPlanGrade, OrderType, Side } from "@/lib/types";
 import { isExpired, pairLabel, relativeTime } from "@/lib/views";
 import { useMemo, useState, type ReactNode } from "react";
+import { apiFetch } from "@/lib/api";
 
 const GRADE_TONE: Record<LeaderPlanGrade, Tone> = { DISCIPLINED: "good", CAUTION: "warn", INCOMPLETE: "bad" };
 const GRADE_ICON: Record<LeaderPlanGrade, string> = { DISCIPLINED: "●", CAUTION: "!", INCOMPLETE: "✕" };
@@ -101,7 +102,7 @@ export function Publish() {
         durationSeconds: type === "twap" ? Number(payload?.durationSeconds ?? duration) : undefined,
         twapBucketCount: type === "twap" ? Number(twapBucketCount) : undefined,
       };
-      const res = await fetch("/api/strategies", {
+      const res = await apiFetch("/api/strategies", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(body),

@@ -37,6 +37,7 @@ import {
   useSignMessage,
   useSignTypedData,
 } from "wagmi";
+import { apiFetch } from "@/lib/api";
 
 const PREVIEW_POLICY = defaultPolicy(
   "0x0000000000000000000000000000000000000000",
@@ -69,7 +70,7 @@ export function FollowDesk({ reviewProposalId }: { reviewProposalId?: string }) 
         if (!follows.some((l) => l.toLowerCase() === s.leader.toLowerCase())) {
           continue;
         }
-        await fetch("/api/proposals", {
+        await apiFetch("/api/proposals", {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ strategyId: s.id, follower: address }),
@@ -576,7 +577,7 @@ export function AssistPanel({ policy, onSaved }: { policy: Policy; onSaved: () =
     setSavingMode(true);
     setError(null);
     try {
-      const res = await fetch("/api/policy", {
+      const res = await apiFetch("/api/policy", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ ...policy, automationMode: nextMode }),
@@ -794,7 +795,7 @@ export function ProposalCard({
         await switchChainAsync({ chainId: wantChain as 8453 | 5042 });
       }
       mark("quote", "active");
-      const qRes = await fetch("/api/quote", {
+      const qRes = await apiFetch("/api/quote", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ proposalId: proposal.id }),
@@ -939,7 +940,7 @@ export function ProposalCard({
         mark("bracket", "skip");
       }
       mark("submit", "active");
-      const oRes = await fetch("/api/order", {
+      const oRes = await apiFetch("/api/order", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -1371,7 +1372,7 @@ export function PolicyEditor({
     setSaving(true);
     setErr(null);
     try {
-      const res = await fetch("/api/policy", {
+      const res = await apiFetch("/api/policy", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(draft),

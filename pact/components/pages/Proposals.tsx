@@ -18,6 +18,7 @@ import type { CopyAction, Decision, Proposal } from "@/lib/types";
 import { actionCounts, actionOf, approvedNotional, isExpired, pairLabel, relativeTime, rewardRisk } from "@/lib/views";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { apiFetch } from "@/lib/api";
 
 type Filter = "ALL" | CopyAction;
 
@@ -89,7 +90,7 @@ export function Proposals() {
       const follows = policy.follows ?? [];
       for (const s of state?.strategies ?? []) {
         if (!follows.some((l) => l.toLowerCase() === s.leader.toLowerCase())) continue;
-        await fetch("/api/proposals", {
+        await apiFetch("/api/proposals", {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ strategyId: s.id, follower }),

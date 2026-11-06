@@ -6,6 +6,7 @@ import { CHAIN_IDS } from "@/lib/chains";
 import type { Chain, OrderType, Side } from "@/lib/types";
 import { useState } from "react";
 import { useAccount } from "wagmi";
+import { apiFetch } from "@/lib/api";
 
 export function LeadTicket() {
   const { address } = useAccount();
@@ -82,7 +83,7 @@ export function LeadTicket() {
             ? Number(twapBucketCount)
             : undefined,
       };
-      const res = await fetch("/api/strategies", {
+      const res = await apiFetch("/api/strategies", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(body),

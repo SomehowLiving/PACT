@@ -6,6 +6,7 @@ import { CHAIN_IDS } from "@/lib/chains";
 import type { AutomationMode, Chain, FollowerExitMode, LeaderMandate, OrderType, Policy, Side } from "@/lib/types";
 import Link from "next/link";
 import { useMemo, useState, type ReactNode } from "react";
+import { apiFetch } from "@/lib/api";
 
 /* Structured mandate editor: position sizing → risk limits → concentration →
    exit controls → automation. Saves the same Policy shape PolicyEditor saves. */
@@ -125,7 +126,7 @@ export function Mandate() {
     setSaving(true);
     setServerError(null);
     try {
-      const res = await fetch("/api/policy", {
+      const res = await apiFetch("/api/policy", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(withMandates(draft)),

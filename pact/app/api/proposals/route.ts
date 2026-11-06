@@ -1,3 +1,4 @@
+import { requireOwner } from "@/lib/session";
 import { createProposal, snapshot } from "@/lib/store";
 
 export const dynamic = "force-dynamic";
@@ -18,6 +19,8 @@ export async function POST(req: Request) {
   if (!body.strategyId || !body.follower) {
     return Response.json({ error: "strategyId and follower required" }, { status: 400 });
   }
+  const denied = requireOwner(req, body.follower);
+  if (denied) return denied;
   try {
     const result = await createProposal(body.strategyId, body.follower);
     return Response.json(result);

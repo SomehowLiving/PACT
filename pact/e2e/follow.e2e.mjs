@@ -26,16 +26,28 @@ const check = (name, ok, detail = "") => {
 };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-async function api(path, body) {
+async function api(path, body, cookie) {
   const res = await fetch(`${BASE}${path}`, {
     method: body ? "POST" : "GET",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...(cookie ? { cookie } : {}) },
     body: body ? JSON.stringify(body) : undefined,
   });
-  return { status: res.status, json: await res.json().catch(() => null) };
+  return { status: res.status, json: await res.json().catch(() => null), setCookie: res.headers.get("set-cookie") };
 }
 
-const LEADER = "0x1111111111111111111111111111111111111111";
+// Sign in from Node the way the browser does: fetch a message, sign it, trade it for a cookie.
+async function signInNode(account) {
+  const { json } = await api("/api/session/nonce", { address: account.address });
+  const signature = await account.signMessage({ message: json.message });
+  const res = await api("/api/session", { message: json.message, signature });
+  if (res.status !== 200 || !res.setCookie) throw new Error(`sign-in failed: ${JSON.stringify(res.json)}`);
+  return res.setCookie.split(";")[0];
+}
+
+// A real leader key, so the leader signs in to publish like anyone else.
+const leaderAccount = privateKeyToAccount(generatePrivateKey());
+const LEADER = leaderAccount.address;
+let leaderCookie;
 async function disciplinedPlan() {
   const health = await api("/api/health");
   const entry = Number(health.json?.price);
@@ -51,7 +63,7 @@ async function disciplinedPlan() {
 async function newSession(browser, account, { tamperQuote = false } = {}) {
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 1500 } });
   const page = await ctx.newPage();
-  const wallet = { signTyped: 0, signMsg: 0, sendTx: 0, log: [] };
+  const wallet = { signTyped: 0, signMsg: 0, signIn: 0, sendTx: 0, log: [] };
 
   await page.exposeFunction("__signTyped", async (json) => {
     wallet.signTyped++;
@@ -61,10 +73,17 @@ async function newSession(browser, account, { tamperQuote = false } = {}) {
     return account.signTypedData(t);
   });
   await page.exposeFunction("__signMsg", async (hex) => {
-    wallet.signMsg++;
-    wallet.log.push("personal_sign");
     const { hexToString } = await import("viem");
-    return account.signMessage({ message: hexToString(hex) });
+    const message = hexToString(hex);
+    // A PACT sign-in is not an order action; count it apart from cancels.
+    if (message.includes("wants you to sign in with your Ethereum account")) {
+      wallet.signIn++;
+      wallet.log.push("sign-in");
+    } else {
+      wallet.signMsg++;
+      wallet.log.push("personal_sign");
+    }
+    return account.signMessage({ message });
   });
   await page.exposeFunction("__sendTx", async () => {
     wallet.sendTx++;
@@ -182,23 +201,45 @@ async function openNewestReview(session, follower, orderType) {
   return mine[0];
 }
 
-async function followLeader(follower) {
+async function followLeader(account) {
+  const follower = account.address;
+  const cookie = await signInNode(account);
   const current = await api(`/api/policy?follower=${follower}`);
   if (current.status !== 200 || !current.json?.policy) {
     throw new Error(`could not load follower policy: ${JSON.stringify(current.json)}`);
   }
-  const saved = await api("/api/policy", {
-    ...current.json.policy,
-    follows: [LEADER],
-  });
+  const saved = await api("/api/policy", { ...current.json.policy, follows: [LEADER] }, cookie);
   if (saved.status !== 200) {
     throw new Error(`could not select leader: ${JSON.stringify(saved.json)}`);
   }
 }
 
+async function publish(plan) {
+  leaderCookie ??= await signInNode(leaderAccount);
+  const res = await api("/api/strategies", { leader: LEADER, ...plan }, leaderCookie);
+  if (res.status !== 200) throw new Error(`publish failed: ${JSON.stringify(res.json)}`);
+  return res;
+}
+
 const browser = await chromium.launch({ executablePath: CHROME, args: ["--no-sandbox"] });
 
 try {
+  // ---------- Case 0: writes need the owner's session ----------
+  console.log("\n# Case 0: wallet sessions gate every desk write");
+  {
+    const owner = privateKeyToAccount(generatePrivateKey());
+    const intruder = privateKeyToAccount(generatePrivateKey());
+    const policy = (await api(`/api/policy?follower=${owner.address}`)).json.policy;
+    const anon = await api("/api/policy", { ...policy, follows: [LEADER] });
+    check("mandate save without a session is refused (401)", anon.status === 401, `status ${anon.status}`);
+    const other = await api("/api/policy", { ...policy, follows: [LEADER] }, await signInNode(intruder));
+    check("mandate save signed in as another wallet is refused (403)", other.status === 403, `status ${other.status}`);
+    const mine = await api("/api/policy", { ...policy, follows: [LEADER] }, await signInNode(owner));
+    check("mandate save by the signed-in owner is accepted", mine.status === 200, `status ${mine.status}`);
+    const plan = await api("/api/strategies", { leader: owner.address, qty: "25" });
+    check("publishing a plan without a session is refused (401)", plan.status === 401, `status ${plan.status}`);
+  }
+
   // ---------- Case 1: honest server, full flow ----------
   console.log("\n# Case 1: connect, ALLOW, guard, sign, submit");
   const a = privateKeyToAccount(generatePrivateKey());
@@ -207,9 +248,9 @@ try {
   check("wallet connects and follower page shows the address", true, a.address.slice(0, 10));
 
   await sleep(800); // let the policy for this follower be created
-  await followLeader(a.address);
+  await followLeader(a);
   const plan1 = await disciplinedPlan();
-  await api("/api/strategies", {
+  await publish({
     leader: LEADER,
     orderType: "twap",
     // $100 leader plan → $25 follower copy (25%). A $2.50 copy fails PACT's execution-cost
@@ -239,6 +280,7 @@ try {
 
   const guardText = await s1.page.getByText(/safe to sign/).first().textContent().catch(() => null);
   check("guard panel appears and says safe to sign", Boolean(guardText?.includes("safe to sign")), guardText?.slice(0, 60) ?? "missing");
+  check("browser signed in once with a gasless message before its first write", s1.wallet.signIn === 1, s1.wallet.log.join(" → "));
   check(
     "wallet was asked for entry funding and Flash signatures",
     s1.wallet.sendTx >= 1 && s1.wallet.signTyped >= 2,
@@ -294,9 +336,9 @@ try {
   const s2 = await newSession(browser, b, { tamperQuote: true });
   await connect(s2.page, b.address);
   await sleep(800);
-  await followLeader(b.address);
+  await followLeader(b);
   const plan2 = await disciplinedPlan();
-  await api("/api/strategies", {
+  await publish({
     leader: LEADER,
     orderType: "twap",
     // $100 leader plan → $25 follower copy (25%). A $2.50 copy fails PACT's execution-cost
@@ -324,9 +366,9 @@ try {
   const s3 = await newSession(browser, c);
   await connect(s3.page, c.address);
   await sleep(800);
-  await followLeader(c.address);
+  await followLeader(c);
   const plan3 = await disciplinedPlan();
-  await api("/api/strategies", {
+  await publish({
     leader: LEADER,
     orderType: "market",
     qty: "500",

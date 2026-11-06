@@ -80,6 +80,31 @@ export function resetStore() {
   persist(g.__pact);
 }
 
+const isDemo = (address?: string) => !!address && /^0x([0-9a-f])\1{39}$/i.test(address);
+
+/**
+ * Clear only what the demo owns: seeded desks, seeded leaders' plans and everything derived from
+ * them. Real wallets' mandates, plans, mirrors and receipts survive a demo reload.
+ */
+export function resetDemoData() {
+  const m = mem();
+  const strategies = m.strategies.filter((s) => !isDemo(s.leader));
+  const kept = new Set(strategies.map((s) => s.id));
+  const proposals = m.proposals.filter((p) => !isDemo(p.follower) && kept.has(p.strategyId));
+  const ids = new Set(proposals.map((p) => p.id));
+  const pick = <T,>(r: Record<string, T>) => Object.fromEntries(Object.entries(r).filter(([k]) => ids.has(k)));
+  g.__pact = {
+    strategies,
+    policies: m.policies.filter((p) => !isDemo(p.follower)),
+    proposals,
+    decisions: pick(m.decisions),
+    quotes: pick(m.quotes),
+    receipts: m.receipts.filter((r) => ids.has(r.proposalId)),
+    logs: m.logs.filter((l) => ids.has(l.proposalId)),
+  };
+  persist(g.__pact);
+}
+
 export const DEMO_LEADER =
   "0x1111111111111111111111111111111111111111" as const;
 export const DEMO_PULLBACK_LEADER =
@@ -144,13 +169,11 @@ function seedDesks(steady: `0x${string}`, leader: `0x${string}`) {
   });
 }
 
-export async function seedDemo(opts?: {
-  leader?: `0x${string}`;
-  follower?: `0x${string}`;
-}) {
-  resetStore();
-  const leader = opts?.leader ?? DEMO_LEADER;
-  const follower = opts?.follower ?? DEMO_FOLLOWER;
+/** Reload the demo scenario. Only demo addresses are written; real desks are left alone. */
+export async function seedDemo() {
+  resetDemoData();
+  const leader = DEMO_LEADER;
+  const follower = DEMO_FOLLOWER;
   const pullbackLeader = DEMO_PULLBACK_LEADER;
   const chaseLeader = DEMO_CHASE_LEADER;
   const portfolioFollower = DEMO_PORTFOLIO_FOLLOWER;

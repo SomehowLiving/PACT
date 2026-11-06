@@ -1,3 +1,4 @@
+import { requireOwner } from "@/lib/session";
 import { addStrategy, proposeToAll, snapshot } from "@/lib/store";
 import { CHAINS } from "@/lib/chains";
 import { getOrder } from "@/lib/flash";
@@ -41,6 +42,8 @@ export async function POST(req: Request) {
   if (!body.leader || !/^0x[a-fA-F0-9]{40}$/.test(body.leader)) {
     return Response.json({ error: "leader address required" }, { status: 400 });
   }
+  const denied = requireOwner(req, body.leader);
+  if (denied) return denied;
   const chain: Chain = body.chain ?? "base";
   if (!(chain in CHAINS)) {
     return Response.json({ error: "unsupported chain" }, { status: 400 });

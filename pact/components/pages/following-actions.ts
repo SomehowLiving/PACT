@@ -3,6 +3,7 @@
 import { useDeskContext } from "@/components/DeskContext";
 import type { LeaderMandate, Policy } from "@/lib/types";
 import { useState } from "react";
+import { apiFetch } from "@/lib/api";
 
 /* Follow / unfollow / pause actions shared by Discover and Following.
    Every change is a follower policy save; PACT re-decides queued plans on save. */
@@ -84,7 +85,7 @@ export function useLeaderActions() {
     setBusy(leader.toLowerCase());
     setError(null);
     try {
-      const res = await fetch("/api/policy", {
+      const res = await apiFetch("/api/policy", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(next),

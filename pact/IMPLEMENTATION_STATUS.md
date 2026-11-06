@@ -226,6 +226,7 @@ Test coverage is organized as follows:
 | Market context | GeckoTerminal for Base WETH/USDC | Informational chart only |
 | Execution quote/fill | Definitive Flash | Source of execution facts |
 | Wallet authorization | Follower wallet | Only current authority able to sign execution |
+| Desk writes | Wallet session (SIWE, 12 h httpOnly cookie) | Mandate, plan, mirror, quote and order writes refused unless the session address owns the record |
 | Assist | Deterministic local policy orchestration | No key, no session, no execution authority |
 
 ## What Is Explicitly Not Claimed
@@ -331,3 +332,26 @@ shapes are also checked against the live API by `FLASH_LIVE=1 npx vitest run lib
 **Known configuration gap:** `.env.local` uses Flash's public playground key, so fees go
 to Definitive's vault and orders share its portfolio. Get a PACT integrator key before
 the live run and set `NEXT_PUBLIC_FLASH_VAULT` to its vault.
+
+## Phase 2 · step 1: wallet sessions (Nov 6, 2026)
+
+Before this step anyone could POST a mandate, a plan or a mirror for *any* address, and
+`POST /api/demo` wiped the whole store, real wallets included.
+
+| Piece | Behaviour |
+| --- | --- |
+| `lib/session.ts` | Sign-In with Ethereum (EIP-4361) message for Base, single-use nonce (10 min), domain and statement checked; EOA signatures recovered locally, smart wallets checked on chain (ERC-1271 / 6492). Session = HMAC-signed `{address, exp}` in an httpOnly `SameSite=Lax` cookie for 12 h. Secret: `PACT_SESSION_SECRET`, else a random one beside the store file |
+| `/api/session/nonce`, `/api/session` | issue message · exchange signature for cookie · `GET` who am I · `DELETE` sign out |
+| `requireOwner` | `POST /api/policy` (follower), `/api/strategies` (leader), `/api/proposals` (follower), `/api/quote` and `/api/order` (proposal's follower): 401 `SIGN_IN_REQUIRED` / 403 `SESSION_MISMATCH`. Cancel stays gated by the Flash-verified cancel signature |
+| `lib/api.ts` | `apiFetch` retries a write once after one wallet sign-in prompt (shared between concurrent writes); signer registered by `DeskProvider` via wagmi `signMessage` |
+| Demo reload | `seedDemo` takes no overrides and clears only demo-owned records (`resetDemoData`); real mandates, plans, mirrors, receipts survive |
+
+The sign-in message says it cannot move funds, approve tokens or place orders. It can't:
+it is a plain `personal_sign` text, and every Flash action still needs the wallet's own
+EIP-712 signature.
+
+Tests: `lib/session.test.ts` (token tamper/expiry, sign-in, replay, wrong wallet, wrong
+site, unknown nonce, owner gate) and a demo-reload test in `lib/store.test.ts` (92 unit
+tests pass; the 3 live ones are opt-in). e2e 15/15: Case 0 checks 401 without a session,
+403 for another wallet and 200 for the owner. Case 1 shows exactly one sign-in prompt before
+the Flash signatures. Case 2 (tampered quote) gets the sign-in and nothing else.
