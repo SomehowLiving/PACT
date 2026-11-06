@@ -52,6 +52,8 @@ export function Execution() {
 
   const orderId = selected?.receipt.flashOrderId;
   const live = !!selected && !selected.closed;
+  // While Flash's order stream is live the server refreshes on every change; polling is a slow safety net.
+  const pollMs = state?.tracking?.pollMs ?? 4000;
   useEffect(() => {
     if (!orderId || !live) return;
     const tick = () =>
@@ -59,12 +61,12 @@ export function Execution() {
         .then(() => refresh())
         .catch(() => undefined);
     const first = setTimeout(tick, 0);
-    const id = setInterval(tick, 4000);
+    const id = setInterval(tick, pollMs);
     return () => {
       clearTimeout(first);
       clearInterval(id);
     };
-  }, [orderId, live, refresh]);
+  }, [orderId, live, refresh, pollMs]);
 
   return (
     <div>
@@ -97,7 +99,7 @@ export function Execution() {
         </div>
       ) : (
         <div className="space-y-4">
-          <Panel title="Orders" subtitle={`${rows.length} submitted to Flash`} layer="execution">
+          <Panel title="Orders" subtitle={`${rows.length} submitted to Flash · ${trackingLabel(state?.tracking)}`} layer="execution">
             <div className="scroll-thin max-h-[420px] overflow-auto">
               <table className="tbl">
                 <thead>
@@ -567,3 +569,10 @@ function PlannedRow() {
   );
 }
 
+
+function trackingLabel(tracking?: { mode: string; status?: string }) {
+  if (!tracking || tracking.mode === "off") return "nothing live";
+  if (tracking.mode === "stream" && tracking.status === "live") return "live via Flash order stream";
+  if (tracking.mode === "stream") return `stream ${tracking.status ?? "connecting"}, polling meanwhile`;
+  return "polling Flash";
+}

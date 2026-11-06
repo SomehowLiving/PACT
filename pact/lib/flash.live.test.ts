@@ -75,6 +75,19 @@ describe.skipIf(!LIVE)("Flash live quotes (no orders)", () => {
     expect(quote.quoteId).toBeTruthy();
   }, 30_000);
 
+  it("streams orders over Flash's WebSocket: snapshot for one funder, then heartbeats", async () => {
+    const { OrderStream } = await import("./flash-stream");
+    const snapshots: unknown[][] = [];
+    const stream = new OrderStream({ apiKey: process.env.FLASH_API_KEY! }, { onSnapshot: (_s, orders) => snapshots.push(orders) });
+    stream.open(FUNDER);
+    const deadline = Date.now() + 15_000;
+    while (!stream.healthy(FUNDER) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 200));
+    const status = stream.status(FUNDER);
+    stream.closeAll();
+    expect(status?.status).toBe("live");
+    expect(Array.isArray(snapshots[0])).toBe(true);
+  }, 30_000);
+
   it("marks an open position at Flash's exit quote, net of fees and below the mid", async () => {
     const { exitMark } = await import("./marks");
     const { assetPrice } = await import("./price");

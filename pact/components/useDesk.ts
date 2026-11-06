@@ -2,11 +2,13 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { DeskState } from "@/lib/types";
+import type { TrackingInfo } from "@/lib/tracker";
 
 export type DeskPayload = DeskState & {
   dailySpentUsd: number;
   blockedNotionalUsd: number;
   leaderDailyRealizedLossesUsd: Record<string, number>;
+  tracking?: TrackingInfo;
 };
 
 export function useDesk(follower?: string) {

@@ -760,6 +760,8 @@ export function ProposalCard({
   const orderId = receipt?.flashOrderId;
   // Keep watching after the entry ends while its protection pair is still pending or live.
   const watching = Boolean(receipt && stillLive(receipt));
+  // While Flash's order stream is live the server refreshes on every change; polling is a slow safety net.
+  const pollMs = useDeskContext().state?.tracking?.pollMs ?? 4000;
 
   // Keep the order fresh after submit: Flash order status, TWAP slices, fills, protection.
   useEffect(() => {
@@ -769,12 +771,12 @@ export function ProposalCard({
         .then(() => onDone())
         .catch(() => undefined);
     const first = setTimeout(tick, 0);
-    const id = setInterval(tick, 4000);
+    const id = setInterval(tick, pollMs);
     return () => {
       clearTimeout(first);
       clearInterval(id);
     };
-  }, [orderId, watching, onDone]);
+  }, [orderId, watching, onDone, pollMs]);
 
   async function run() {
     if (!canSign || !address) return;

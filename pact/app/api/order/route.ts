@@ -1,3 +1,4 @@
+import { trackFollower } from "@/lib/tracker";
 import { appendEvidence, hashSync, threads } from "@/lib/evidence";
 import { requireOwner } from "@/lib/session";
 import { INTEGRATOR_FEE_BPS } from "@/lib/constants";
@@ -166,5 +167,7 @@ export async function POST(req: Request) {
       : undefined,
   });
 
+  // Start streaming this follower's orders from Flash now, not on the next desk read.
+  trackFollower(proposal.follower);
   return Response.json({ order: { orderId, attachedBracket: bracketStatus ? { status: bracketStatus } : undefined }, receipt, reconciled });
 }

@@ -10,6 +10,8 @@ export const PAIR_KEY = `${WETH.toLowerCase()}:${USDC.toLowerCase()}`;
 export const ARC_PAIR_KEY = `${CHAINS.arc.weth.toLowerCase()}:${CHAINS.arc.usdc.toLowerCase()}`;
 
 export const FLASH_BASE = "https://flash.definitive.fi/v1";
+/** Flash's documented public playground key: fine for testing, shared with every other user. */
+export const PLAYGROUND_KEY_PREFIX = "dpka_513a2bd7";
 export const BASESCAN_TX = "https://basescan.org/tx/";
 
 export function defaultPolicy(follower: `0x${string}`): Policy {

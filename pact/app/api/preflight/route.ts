@@ -1,4 +1,5 @@
 import { CHAINS } from "@/lib/chains";
+import { PLAYGROUND_KEY_PREFIX } from "@/lib/constants";
 import { executionMetrics, getBalances, postQuote, quoteRequest } from "@/lib/flash";
 import { bracketPriceFloor, verifyBracketSigning, verifySigning } from "@/lib/guard";
 import { DEFAULT_MAX_EXECUTION_COST } from "@/lib/policy";
@@ -9,7 +10,7 @@ export const dynamic = "force-dynamic";
 type Line = { id: string; label: string; level: "ok" | "warn" | "fail"; detail: string };
 
 // Flash's documented public playground key. Fine for testing; a real run should use PACT's own.
-const PLAYGROUND_PREFIX = "dpka_513a2bd7";
+const PLAYGROUND_PREFIX = PLAYGROUND_KEY_PREFIX;
 // Gas for two approvals on Base. Generous: each approval costs well under a cent.
 const MIN_ETH = 0.0002;
 

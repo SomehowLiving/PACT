@@ -405,3 +405,26 @@ an open 0.006 WETH marked at a live Flash exit quote.
 
 Not covered: positions closed outside PACT (a manual sell from the wallet) are invisible, and
 sells copied from a leader have no cost basis, so they get no P&L.
+
+## Phase 2 · step 4: Flash orders stream (Nov 6, 2026)
+
+Before: every open order was tracked by the browser polling `GET /orders/{id}` every 4 s, and
+nothing tracked an order when no page was open.
+
+| Layer | Piece | Behaviour |
+| --- | --- | --- |
+| L0 | `lib/flash-stream.ts` `OrderStream` | `wss://flash.definitive.fi/v1/ws`; per connection: subscribe `heartbeats` + `orders` (apiKey in-band, one scope: a funder or the org); live on the snapshot; heartbeat watchdog (5 s gap → reconnect); capped exponential backoff with equal jitter; `UNAUTHORIZED` stops; transient errors reconnect; `STREAMING_UNAVAILABLE` → degraded (polling continues) |
+| L5 | `lib/tracker.ts` | a frame about a PACT order (entry, its protective order, or a pair whose `sourceEntryOrderId` is the entry) triggers one debounced REST `refreshReceipt`. REST stays the source of truth. Each snapshot (connect and every reconnect) resyncs all live receipts in scope, since a snapshot cannot show what closed during a gap. Streams close when nothing in scope is live |
+| Scope | | integrator key → one org-wide connection for every follower; playground key (shared org) → one connection per follower with live orders, capped at 5 of the 50-per-key limit, polling past the cap |
+| L7 | `/api/state` → `tracking {mode, status, pollMs}` | started from the desk read and right after a submit; browser order polls drop from 4 s to 30 s while the stream is healthy; Execution shows "live via Flash order stream" or "polling Flash" |
+
+Tests: `lib/flash-stream.test.ts` (fake socket and clock: subscribe shapes, one socket per
+scope, snapshot → live, updates delivered, heartbeat gap reconnect + re-subscribe, backoff
+grows and caps, UNAUTHORIZED stops, clean close; tracker: no stream without live orders, frames
+about the entry and pair coalesce into one refresh, unrelated orders ignored, stream closed
+when terminal, pair matched by `sourceEntryOrderId`). Live: a real Flash socket reaches
+`live` with a snapshot in about 1 s. In the Next server, a desk read for a follower with a
+live order opened the stream and reported `live` within 1.5 s. 113 unit tests, e2e 17/17.
+
+Limit: on serverless hosting the socket only lives while an instance does; polling remains
+the fallback, so nothing depends on the stream being up.
