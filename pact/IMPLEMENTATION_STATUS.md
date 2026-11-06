@@ -1,6 +1,6 @@
 # PACT Implementation Status
 
-Status date: November 5, 2026.
+Status date: November 6, 2026.
 
 This is the operational handoff for PACT. It distinguishes what the repository
 implements, what is tested locally, what still needs a real wallet/mainnet
@@ -53,6 +53,7 @@ Primary endpoint: `POST /api/strategies`.
 | Open-plan limits | Built | Global and per-leader limits |
 | Pair / chain / side / type allowlists | Built | Fails closed outside the follower mandate |
 | Plan-protection / quality / evidence gates | Built | Optional policy preferences |
+| Leader pause / resume | Built | Follower holds new plans from one leader (`BLOCK / WAIT · LEADER_PAUSED`) without dropping the leader or mandate; queued plans are re-decided on save. Does not cancel live Flash orders |
 | Realized-loss breaker | Partial | Can block future proposals when trusted realized-PnL evidence exists; not a full live drawdown system |
 
 Primary endpoint: `GET` / `POST /api/policy`.
@@ -79,7 +80,7 @@ estimate, not guaranteed maximum loss.
 | Quote price-impact / slippage gates | Built | Refuses quote that no longer fits follower policy |
 | Browser-side EIP-712 guard | Built | Re-checks raw Flash returned signing payload before wallet prompt |
 | Permit2 / approval handling | Built | Handles returned direct approval or Permit2 material and validates expected spender/path |
-| Attached TP/SL bracket | Built | Eligible buy entries can attach follower-owned Flash bracket if Flash returns bracket signing data |
+| Attached TP/SL bracket | Built | Eligible buy entries attach a Flash TP/SL pair; its payloads pass the guard, its leg ids and live levels are tracked, and cancel covers entry + pair |
 | Single order cancellation | Built | Follower signs a Flash cancel message |
 | Batch cancellation | Not built | Needs confirmed Flash endpoint and follower-signed flow |
 
@@ -98,6 +99,18 @@ PACT stores and displays:
 
 This is a receipt layer, not a PnL predictor. It answers whether the follower’s
 actual execution stayed within the mandate they approved.
+
+Two things build on the receipts:
+
+- **Per-leader fidelity history** (`lib/fidelity.ts`, “your leaders” panel on
+  `/follower`): submitted and filled orders, mean and worst entry drift, how many
+  fills stayed inside the follower’s drift bound, and Flash close reasons. It uses
+  only this follower’s own PACT orders and is not a skill or profitability score.
+- **Evidence export** (`GET /api/orders/[id]/evidence`, `npm run evidence -- <orderId>`,
+  and an `evidence.json` link on each order card): re-reads the order from Flash and
+  saves PACT’s decision, proposal and policy hashes, quote, fills, tx explorer links and
+  the **raw** Flash order response to `pact/evidence/<orderId>.json`. If Flash is
+  unreachable it still exports the stored record with `flash.live: false`.
 
 ### Portfolio and Market Context
 
@@ -162,10 +175,11 @@ Last local validation for the currently committed product features:
 
 | Check | Result |
 | --- | --- |
-| `npm test` | 60 tests passed |
+| `npm test` | 66 tests passed |
 | `npm run lint` | Passed |
 | `npx tsc --noEmit` | Passed |
 | `git diff --check` | Passed before each related commit |
+| `npm run build` | Passes (Nov 6). The first run after a change can stop with Next’s `SecurityFatalError` notice because `next.config.ts` sets `experimental.agentUpgrade: "security"`; rerunning continues. Next 16.4.5 has a known advisory, so an upgrade is recommended |
 
 Test coverage is organized as follows:
 
@@ -175,7 +189,8 @@ Test coverage is organized as follows:
 | `lib/guard.test.ts` | EIP-712 / Permit2 recipient, amount, token, spender, domain, deadline, and approval tampering checks |
 | `lib/flash.test.ts` | Flash request shaping, TWAP asymmetric echo rules, brackets, cancellation message, execution/fill metrics |
 | `lib/store.test.ts` | Multi-leader sleeves, deterministic demo cases, fixed sizing, stop-risk sizing |
-| `lib/agent.test.ts` | Assist queues review, holds waits/reviews, and declines blocked plans |
+| `lib/agent.test.ts` | Assist queues review, holds waits/reviews (including follower pauses), and declines blocked plans |
+| `lib/fidelity.test.ts` | Per-leader drift history counts only this follower’s Flash orders and never invents drift without fills and a declared entry |
 
 ### Not Yet Validated With Real Funds
 
@@ -233,7 +248,8 @@ PACT must not claim:
 
 1. Execute a small follower-signed Base WETH/USDC TWAP with attached bracket.
 2. Preserve order ID, transaction hashes, fill rows, average fill, and terminal
-   report as a real demo artifact.
+   report as a real demo artifact: run `npm run evidence -- <orderId>` once the
+   order is terminal and commit `pact/evidence/<orderId>.json`.
 3. Expand receipts with any confirmed Flash-provided fee, venue, and completed
    fill-count fields after observing the real response schema.
 
@@ -241,9 +257,10 @@ PACT must not claim:
 
 1. Compare leader plan fields with Flash order fields when the actual response
    provides sufficient data; introduce `PLAN_MATCHED` only then.
-2. Add follower-initiated leader pause/resume and confirmed batch-cancel flow.
-3. Add leader execution-fidelity history from real receipts, without turning it
-   into an unsupported profitability score.
+2. ~~Follower-initiated leader pause/resume~~ (built Nov 6). Batch cancel still
+   waits on Definitive confirming the endpoint and signature shape.
+3. ~~Leader execution-fidelity history from receipts~~ (built Nov 6); it becomes
+   meaningful once real fills exist.
 4. Expand market context to additional explicitly supported pairs only after
    validating token mapping and data quality.
 
@@ -289,3 +306,28 @@ PACT must not claim:
 | `e611eed` | Added policy-bound Assist agent and Autopilot architecture doc |
 | `eb83dc5` | Added stop-risk sizing, execution fidelity, and concentration controls |
 | `d6cf25a` | Added policy-driven copy mandates |
+
+## Phase 0 hardening (Nov 6, 2026)
+
+Fixes from the Flash docs/OpenAPI audit and a source study of other Flash apps
+(see `../pact-architecture.md`). Each is covered by a unit test; the request
+shapes are also checked against the live API by `FLASH_LIVE=1 npx vitest run lib/flash.live.test.ts`
+(quotes only, no orders).
+
+| Fix | Before | After |
+| --- | --- | --- |
+| Signing domain | `chainId` passed to viem as a string, so viem dropped it from the EIP-712 domain hash and Flash rejected every signature (`403 signature verification failed`) | `parseOrderTypedData` coerces it to a number; the browser e2e now reaches Flash's balance check (`insufficient source asset balance`) — the signatures verify |
+| Limit + protection | rejected by Flash (`limit_cross_price required`, pair expiry before entry) | `limitCrossPrice` on limit + bracket; pair expiry ≥ entry expiry |
+| Copy lifetime | resting copies lived 7 days regardless of the plan | expire with the plan's copy window; TWAP copies finish inside it |
+| Protection guard | bracket approval, permit and order signed unchecked | `verifyBracketSigning` in server and browser; size bounded by 2.2 × entry ÷ stop |
+| Direct approvals | guard failed a bounded approval to Flash's allowance contract | accepted when bounded; vault pinned via `NEXT_PUBLIC_FLASH_VAULT` |
+| Fees | ignored; drift used the market mark only | all-in price, fee and cost ratio stored; separate `maxExecutionCost` budget (default 3%) |
+| Fill parsing | `fillPrice` averaged (inverted on sells) | Flash `averageNotionalPrice`, else finalised contra ÷ target; reorged fills ignored; fees summed |
+| Submit | protections omitted on submit; a 4xx assumed nothing happened; bracket expiry sent on submit | impact/slippage echoed; failed submits reconciled against the order list; submit shape per OpenAPI |
+| Protection tracking | bracket id never stored; cancel left the pair live | pair status, `bracketOrderId`, live levels read back (`levelsMatch`); cancel = one signed batch for entry + pair; `422 already filled` reported, not failed |
+| Polling | stopped when the entry ended; 404 right after submit = error | continues while the pair is live; 404 within 15 s = pending; reads retry on 429 |
+| Receipts | — | `receiptVerdict`: MATCH / MISMATCH for price bound, fees, recipient, integrator fee, protection levels (in the evidence bundle) |
+
+**Known configuration gap:** `.env.local` uses Flash's public playground key, so fees go
+to Definitive's vault and orders share its portfolio. Get a PACT integrator key before
+the live run and set `NEXT_PUBLIC_FLASH_VAULT` to its vault.

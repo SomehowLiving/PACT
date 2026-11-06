@@ -30,11 +30,11 @@ PACT focuses on these follower-side failure modes:
 | Follower risk | PACT response | Status |
 | --- | --- | --- |
 | Position is too large for follower capital | Portfolio, leader, asset, daily, and open-plan caps | Built |
-| Leader entry becomes a worse follower fill | Entry drift becomes a Flash price bound | Built |
+| Leader entry becomes a worse follower fill | Entry drift becomes the Flash order's limit price (enforced by Flash's engine) | Built |
 | Quote has excessive impact or slippage | Quote-time policy gate | Built |
 | Plan has no clear invalidation or stop | Structured plan fields and optional quality gate | Built |
 | Several leaders create one directional bet | Same-asset/same-side concentration view and cap | Built |
-| Follower cannot control exits | Follower-owned Flash TP/SL bracket or manual exit | Built for eligible entries |
+| Follower cannot control exits | Flash TP/SL pair on the follower's position (levels read back and verified) or manual exit | Built for eligible entries |
 | Leader claims an order without evidence | Flash `ORDER_FOUND` lookup under leader wallet | Partial |
 | Follower cannot see whether copying stayed faithful | Quote, fill, and entry-drift receipt | Built |
 | User wants help sorting proposals | Deterministic PACT Assist review queue | Built |
@@ -174,32 +174,53 @@ PACT integrates Flash quote, order, order-status, and cancellation paths.
 For a follower quote, PACT applies:
 
 - market slippage limits where relevant;
-- advanced-order price-impact limits;
-- follower `maxEntryDrift` converted into a hard Flash `limitNotionalPrice`:
+- advanced-order price-impact limits, sent on the quote **and** echoed on submit;
+- follower `maxEntryDrift` converted into the order's Flash limit price
+  (`limitNotionalPrice`, or `limitCrossPrice` on a limit entry with protection,
+  which Flash requires):
   - buy: maximum acceptable execution price;
   - sell: minimum acceptable execution price;
   - a stricter leader price bound wins;
+- an **execution-cost budget**: Flash's estimated fees (platform + network +
+  integrator) as a share of size, checked separately from drift (default 3%);
+- copies that never outlive the plan: a resting copy expires with the leader's
+  copy window, and a TWAP copy finishes inside it;
 - TWAP duration, optional bucket count, and optional start-time shaping;
-- an attached Flash TP/SL bracket for eligible buy entries when the follower
-  chooses bracket exit and Flash returns bracket signing data.
+- an attached Flash TP/SL pair for eligible buy entries when the follower
+  chooses bracket exit; its expiry is never earlier than the entry's.
 
 For TWAP, `durationSeconds` is quote-only. `twapBucketCount`, `startTime`, and
 the applicable price bound are echoed on order submission. PACT does not send
 TWAP `expireTime` or trigger fields.
 
+**Who enforces what.** The limit price and the TP/SL triggers are enforced by
+**Flash's execution engine**. They are not part of the follower's signature: a
+Flash order signature binds the tokens, the maximum spend, the recipient (the
+follower), the fee vault and the deadline. So PACT reads the live TP/SL levels
+back from Flash after submit and flags any difference from what the follower
+chose, and every receipt carries a MATCH / MISMATCH verdict for the price bound,
+fees, recipient, integrator fee and protection levels.
+
 ### 5. Browser-Side Signature Guard
 
-PACT checks the raw Flash payload both server-side and in the follower browser
-before a wallet prompt. The guard verifies, among other things:
+PACT checks the raw Flash payloads both server-side and in the follower browser
+before any wallet prompt: the entry order **and** the protection pair's approval,
+permit and order. The guard verifies, among other things:
 
-- follower recipient and swapper;
-- expected tokens and chain;
-- policy-approved amount;
-- Permit2/approval target;
+- follower recipient and swapper on every order;
+- expected tokens and chain (the protection sells what the entry buys);
+- policy-approved amount, and a bound on what the protection may sell;
+- Permit2 or direct-approval target and amount;
+- the integrator fee vault, when pinned (`NEXT_PUBLIC_FLASH_VAULT`);
 - signing domain and future deadline.
 
+What the guard proves is **where funds can go**, not at what price: even a
+tampered price or trigger can only mis-time a trade back into the follower's
+own wallet.
+
 PACT never stores, exports, or requests a follower private key. A blocked plan
-never calls Flash quote or order endpoints.
+never calls Flash quote or order endpoints. Cancelling a copy cancels the entry
+**and** its live protective order with one signature (Flash batch cancel).
 
 ### 6. Execution Fidelity Receipts
 
