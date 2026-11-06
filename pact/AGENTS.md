@@ -7,3 +7,12 @@ This version has breaking changes — APIs, conventions, and file structure may 
 This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
 
 <!-- END:nextjs-agent-rules -->
+
+## PACT UI rules (mandatory for frontend work)
+
+Read `PACT_UI_DESIGN_RULES.md` before changing any screen. In short: one global navigation
+(Trade · Discover · Plans · Portfolio · Orders in the header; local tabs inside each
+workspace; everything else in the account menu), one canonical URL per object (leader,
+plan, proposal, order, receipt), tables first, honest data only (no invented PnL, win rate
+or rankings; DEMO data labelled), and no backend, API, policy, Flash or signing changes as
+part of UI work.

@@ -7,9 +7,9 @@ import { LayerTag } from "@/components/ui";
 import { shortAddr } from "@/lib/format";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { erc20Abi, formatUnits } from "viem";
-import { useBalance, useReadContracts } from "wagmi";
+import { useAccount, useBalance, useReadContracts } from "wagmi";
 
 /* ── Icons (16px, 1.4 stroke) ─────────────────────────────────────────── */
 
@@ -62,40 +62,85 @@ function useDeskCounts() {
   return { awaiting, live, following: policy.follows?.length ?? 0 };
 }
 
+
 /* ── Navigation model ─────────────────────────────────────────────────── */
+/*
+ * One global navigation (PACT_UI_DESIGN_RULES §3): five workspaces in the header, local tabs
+ * inside each workspace, everything else in the account menu. Every existing route stays
+ * reachable; no destination appears twice.
+ */
 
-type NavItem = { href: string; label: string; icon: IconName; count?: "following" | "awaiting"; match?: string[] };
+type Count = "following" | "awaiting" | "live";
 
-const PRIMARY: NavItem[] = [
-  { href: "/", label: "Overview", icon: "overview" },
-  { href: "/discover", label: "Discover", icon: "discover", match: ["/leaders"] },
-  { href: "/following", label: "Following", icon: "following", count: "following" },
-  { href: "/proposals", label: "Proposals", icon: "proposals", count: "awaiting", match: ["/review"] },
-  { href: "/portfolio", label: "Portfolio", icon: "portfolio" },
-  { href: "/execution", label: "Execution", icon: "execution" },
+type Workspace = {
+  href: string;
+  label: string;
+  /** Routes that belong to this workspace (segment-exact prefixes). */
+  match: string[];
+  count?: Count;
+  tabs?: { href?: string; label: string; count?: Count; match?: string[]; planned?: string }[];
+};
+
+const WORKSPACES: Workspace[] = [
+  { href: "/trade", label: "Trade", match: ["/trade"] },
+  {
+    href: "/discover",
+    label: "Discover",
+    match: ["/discover", "/following", "/leaders"],
+    tabs: [
+      { href: "/discover", label: "All leaders", match: ["/leaders"] },
+      { href: "/following", label: "Following", count: "following" },
+      { label: "Watchlist", planned: "Planned: save a leader to watch without following them" },
+    ],
+  },
+  {
+    href: "/proposals",
+    label: "Plans",
+    match: ["/proposals", "/review", "/plans", "/assist", "/leader"],
+    count: "awaiting",
+    tabs: [
+      { href: "/proposals", label: "Proposal inbox", count: "awaiting", match: ["/review"] },
+      { href: "/assist", label: "PACT Assist" },
+      { href: "/leader", label: "My published plans" },
+    ],
+  },
+  { href: "/portfolio", label: "Portfolio", match: ["/portfolio"] },
+  {
+    href: "/execution",
+    label: "Orders",
+    match: ["/execution", "/history"],
+    count: "live",
+    tabs: [
+      { href: "/execution", label: "Orders & receipts" },
+      { href: "/history", label: "Activity log" },
+    ],
+  },
+  {
+    href: "/settings/mandate",
+    label: "Account",
+    match: ["/settings"],
+    tabs: [
+      { href: "/settings/mandate", label: "Mandate & risk", match: ["/settings"] },
+      { href: "/settings/wallet", label: "Wallet & Autopilot" },
+      { href: "/settings/preferences", label: "Preferences" },
+    ],
+  },
 ];
 
-const SECONDARY: NavItem[] = [
-  { href: "/settings/mandate", label: "Mandate", icon: "mandate" },
-  { href: "/assist", label: "PACT Assist", icon: "assist" },
-];
+/** Header destinations: the five workspaces. Account lives in the account menu. */
+const GLOBAL = WORKSPACES.filter((w) => w.label !== "Account");
 
-const MORE: { href: string; label: string }[] = [
-  { href: "/leader", label: "Publish a plan" },
-  { href: "/settings/wallet", label: "Wallet & connections" },
+const ACCOUNT_LINKS: { href: string; label: string; hint?: string }[] = [
+  { href: "/", label: "Desk overview" },
+  { href: "/settings/mandate", label: "Mandate & risk" },
+  { href: "/settings/wallet", label: "Wallet & Autopilot" },
   { href: "/settings/preferences", label: "Preferences" },
-  { href: "/lab", label: "Demo lab" },
-  { href: "/history", label: "Activity log" },
+];
+
+const TOOL_LINKS: { href: string; label: string }[] = [
+  { href: "/lab", label: "Demo lab · how PACT works" },
   { href: "/follower", label: "Classic desk" },
   { href: "/leader/classic", label: "Classic leader ticket" },
-];
-
-const TOP_TABS: { href: string; label: string; match?: string[] }[] = [
-  { href: "/trade", label: "Trade", match: ["/review"] },
-  { href: "/discover", label: "Leaders", match: ["/following", "/leaders"] },
-  { href: "/proposals", label: "Plans", match: ["/leader", "/plans"] },
-  { href: "/portfolio", label: "Portfolio" },
-  { href: "/execution", label: "Receipts", match: ["/history"] },
 ];
 
 function active(path: string, href: string, match?: string[]) {
@@ -103,7 +148,11 @@ function active(path: string, href: string, match?: string[]) {
   return path === href || path.startsWith(`${href}/`) || !!match?.some((m) => path === m || path.startsWith(`${m}/`));
 }
 
-/* ── Sidebar ──────────────────────────────────────────────────────────── */
+function workspaceOf(path: string) {
+  return WORKSPACES.find((w) => active(path, w.href, w.match));
+}
+
+/* ── Wallet value (account menu) ──────────────────────────────────────── */
 
 const BASE_ID = 8453;
 const USDC = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913" as const;
@@ -132,9 +181,9 @@ function WalletValue({ wethPrice }: { wethPrice?: number }) {
       : undefined;
 
   return (
-    <div className="mx-3 rounded-lg border border-line bg-bg/60 px-3.5 py-3">
+    <div className="rounded-md border border-line bg-bg/60 px-3 py-2.5">
       <div className="flex items-center justify-between text-[11.5px] text-mute">
-        <span>{isDemo ? "Demo desk" : "Wallet value"}</span>
+        <span>{isDemo ? "Demo desk" : "Wallet value · Base"}</span>
         <LayerTag layer={isDemo ? "demo" : "wallet"} compact />
       </div>
       {isDemo ? (
@@ -143,13 +192,10 @@ function WalletValue({ wethPrice }: { wethPrice?: number }) {
           <div className="mt-0.5 text-[11px] text-mute">Seeded addresses hold no funds</div>
         </>
       ) : !address ? (
-        <>
-          <div className="mt-1 text-[20px] font-semibold tnum text-mute">—</div>
-          <div className="mt-0.5 text-[11px] text-mute">Connect to read Base balances</div>
-        </>
+        <div className="mt-1 text-[12px] text-mute">Connect to read Base balances</div>
       ) : (
         <>
-          <div className="mt-1 text-[20px] font-semibold tracking-[-0.01em] tnum text-ink">
+          <div className="mt-1 text-[18px] font-semibold tnum text-ink">
             {total === undefined ? "…" : `$${total.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
           </div>
           <div className="mt-0.5 truncate text-[11px] tnum text-mute">
@@ -161,159 +207,7 @@ function WalletValue({ wethPrice }: { wethPrice?: number }) {
   );
 }
 
-function NavRow({
-  item,
-  path,
-  count,
-  onNavigate,
-  collapsed,
-}: {
-  item: NavItem;
-  path: string;
-  count: number;
-  onNavigate: () => void;
-  collapsed: boolean;
-}) {
-  const on = active(path, item.href, item.match);
-  return (
-    <li>
-      <Link
-        href={item.href}
-        onClick={onNavigate}
-        aria-current={on ? "page" : undefined}
-        aria-label={collapsed ? item.label : undefined}
-        title={collapsed ? (count ? `${item.label} · ${count}` : item.label) : undefined}
-        className={`relative flex items-center rounded-md text-[13.5px] transition-colors ${
-          collapsed ? "h-10 justify-center" : "gap-3 px-3 py-2"
-        } ${on ? "bg-panel-3 font-medium text-ink" : "text-ink/75 hover:bg-panel-2 hover:text-ink"}`}
-      >
-        <Icon name={item.icon} className={on ? "text-ink" : "text-mute"} />
-        {collapsed ? (
-          count ? (
-            <span className="absolute right-1.5 top-1 min-w-[15px] rounded-full bg-panel-3 px-1 text-center text-[9.5px] font-semibold leading-[15px] tnum text-ink ring-2 ring-[var(--panel)]">
-              {count}
-            </span>
-          ) : null
-        ) : (
-          <>
-            <span className="flex-1">{item.label}</span>
-            {count ? <span className="min-w-[22px] rounded-md bg-panel-3 px-1.5 py-0.5 text-center text-[11px] font-medium tnum text-ink">{count}</span> : null}
-          </>
-        )}
-      </Link>
-    </li>
-  );
-}
-
-function Sidebar({
-  path,
-  onNavigate,
-  wethPrice,
-  collapsed = false,
-  onExpand,
-}: {
-  path: string;
-  onNavigate: () => void;
-  wethPrice?: number;
-  collapsed?: boolean;
-  onExpand?: () => void;
-}) {
-  const counts = useDeskCounts();
-  const [moreOpen, setMoreOpen] = useState(() => MORE.some((m) => active(path, m.href)));
-  const countOf = (item: NavItem) => (item.count ? counts[item.count] : 0);
-
-  return (
-    <div className="flex h-full flex-col">
-      <Link
-        href="/trade"
-        onClick={onNavigate}
-        title={collapsed ? "PACT" : undefined}
-        className={`flex h-14 shrink-0 items-center border-b border-line ${collapsed ? "justify-center" : "gap-2.5 px-5"}`}
-      >
-        <Mark size={24} />
-        {collapsed ? null : <span className="text-[17px] font-semibold tracking-[0.14em] text-ink">PACT</span>}
-      </Link>
-      {collapsed ? null : (
-        <div className="pt-3">
-          <WalletValue wethPrice={wethPrice} />
-        </div>
-      )}
-      <nav className={`scroll-thin mt-3 flex-1 overflow-y-auto ${collapsed ? "px-2.5" : "px-2"}`} aria-label="Application navigation">
-        <ul className="space-y-0.5">
-          {PRIMARY.map((item) => (
-            <NavRow key={item.href} item={item} path={path} count={countOf(item)} onNavigate={onNavigate} collapsed={collapsed} />
-          ))}
-        </ul>
-        <div className={`my-3 border-t border-line ${collapsed ? "mx-1" : "mx-3"}`} />
-        <ul className="space-y-0.5">
-          {SECONDARY.map((item) => (
-            <NavRow key={item.href} item={item} path={path} count={0} onNavigate={onNavigate} collapsed={collapsed} />
-          ))}
-        </ul>
-        <div className="mt-1">
-          <button
-            type="button"
-            onClick={() => {
-              if (collapsed) {
-                setMoreOpen(true);
-                onExpand?.();
-              } else setMoreOpen(!moreOpen);
-            }}
-            aria-expanded={collapsed ? false : moreOpen}
-            aria-label={collapsed ? "More pages" : undefined}
-            title={collapsed ? "More pages" : undefined}
-            className={`flex w-full items-center rounded-md text-[13.5px] text-ink/75 hover:bg-panel-2 hover:text-ink ${
-              collapsed ? "h-10 justify-center" : "gap-3 px-3 py-2"
-            }`}
-          >
-            <Icon name="more" className="text-mute" />
-            {collapsed ? null : (
-              <>
-                <span className="flex-1 text-left">More</span>
-                <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden className={`text-mute transition-transform ${moreOpen ? "rotate-180" : ""}`}>
-                  <path d="m2.5 3.8 2.5 2.5 2.5-2.5" stroke="currentColor" strokeWidth="1.3" fill="none" strokeLinecap="round" />
-                </svg>
-              </>
-            )}
-          </button>
-          {moreOpen && !collapsed ? (
-            <ul className="mb-2 ml-[38px] space-y-0.5 border-l border-line pl-2">
-              {MORE.map((m) => (
-                <li key={m.href}>
-                  <Link
-                    href={m.href}
-                    onClick={onNavigate}
-                    className={`block rounded px-2 py-1.5 text-[12.5px] ${active(path, m.href) ? "bg-panel-3 text-ink" : "text-mute hover:text-ink"}`}
-                  >
-                    {m.label}
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          ) : null}
-        </div>
-      </nav>
-      {collapsed ? (
-        <div className="flex justify-center py-4" title="Non-custodial · you sign every order">
-          <span className="h-2 w-2 rounded-full bg-[var(--good)]" aria-label="Non-custodial: you sign every order" />
-        </div>
-      ) : (
-        <div className="m-3 rounded-lg border border-line bg-bg/60 px-3.5 py-3">
-          <div className="flex items-center gap-2 text-[12.5px] font-medium text-good">
-            <span className="h-1.5 w-1.5 rounded-full bg-[var(--good)]" aria-hidden />
-            Non-custodial
-          </div>
-          <p className="mt-1 text-[12px] text-ink/80">You sign every order.</p>
-          <Link href="/lab" onClick={onNavigate} className="mt-1.5 inline-block text-[12px] font-medium text-accent hover:underline">
-            How PACT works →
-          </Link>
-        </div>
-      )}
-    </div>
-  );
-}
-
-/* ── Top bar ──────────────────────────────────────────────────────────── */
+/* ── Health ───────────────────────────────────────────────────────────── */
 
 type Health = { ok?: boolean; price?: number | string; latencyMs?: number; error?: string };
 
@@ -336,51 +230,122 @@ function useHealth() {
   return health;
 }
 
-/** Desktop: collapse/expand the sidebar. Phone: open the navigation drawer. */
-function SidebarToggle({ collapsed, onToggle, onOpenDrawer }: { collapsed: boolean; onToggle: () => void; onOpenDrawer: () => void }) {
-  const icon = (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" aria-hidden>
-      <rect x="2" y="2.75" width="12" height="10.5" rx="2" />
-      <path d="M6 2.75v10.5" />
-      {collapsed ? <path d="m8.75 6.5 1.5 1.5-1.5 1.5" strokeLinecap="round" strokeLinejoin="round" /> : <path d="M10.25 6.5 8.75 8l1.5 1.5" strokeLinecap="round" strokeLinejoin="round" />}
-    </svg>
-  );
+/* ── Header ───────────────────────────────────────────────────────────── */
+
+function CountPill({ value, strong = false }: { value: number; strong?: boolean }) {
+  if (!value) return null;
   return (
-    <>
-      <button
-        type="button"
-        onClick={onToggle}
-        className="btn btn-ghost hidden h-9 w-9 border-transparent p-0 text-mute hover:text-ink lg:inline-flex"
-        aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-        aria-keyshortcuts="Meta+B Control+B"
-        title={`${collapsed ? "Expand" : "Collapse"} sidebar  ⌘B`}
-      >
-        {icon}
-      </button>
-      <button
-        type="button"
-        onClick={onOpenDrawer}
-        className="btn btn-ghost h-9 w-9 border-transparent p-0 text-mute hover:text-ink lg:hidden"
-        aria-label="Open navigation"
-      >
-        {icon}
-      </button>
-    </>
+    <span className={`ml-1.5 min-w-[18px] rounded px-1 text-center text-[10.5px] font-semibold leading-[16px] tnum ${strong ? "bg-[var(--accent-strong)] text-white" : "bg-panel-3 text-ink"}`}>
+      {value}
+    </span>
   );
 }
 
-function TopBar({
-  path,
-  collapsed,
-  onToggle,
-  onOpenDrawer,
-}: {
-  path: string;
-  collapsed: boolean;
-  onToggle: () => void;
-  onOpenDrawer: () => void;
-}) {
+/** Close a popover on outside click or Escape. */
+function useDismiss(open: boolean, close: () => void) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) close();
+    };
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && close();
+    window.addEventListener("mousedown", onDown);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("mousedown", onDown);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [open, close]);
+  return ref;
+}
+
+function NetworkChip() {
+  const { chainId, isConnected } = useAccount();
+  const name = chainId === 8453 ? "Base" : chainId === 5042 ? "Arc" : isConnected ? `Chain ${chainId}` : "Base";
+  const supported = !isConnected || chainId === 8453 || chainId === 5042;
+  return (
+    <Link
+      href="/settings/wallet"
+      title={supported ? `${name} · network for quotes and signing` : "Unsupported network: switch to Base or Arc in your wallet"}
+      className={`hidden h-9 items-center gap-1.5 rounded-md border px-2.5 text-[12.5px] sm:inline-flex ${supported ? "border-line text-ink/85 hover:text-ink" : "border-[var(--bad)] text-bad"}`}
+    >
+      <span aria-hidden className={`h-2 w-2 rounded-full ${name === "Arc" ? "bg-[#8b5cf6]" : supported ? "bg-[#0052ff]" : "bg-[var(--bad)]"}`} />
+      {name}
+    </Link>
+  );
+}
+
+function AccountMenu({ wethPrice }: { wethPrice?: number }) {
   const { viewAs, setViewAs, demoDesks, isDemo, address } = useDeskContext();
+  const [open, setOpen] = useState(false);
+  const close = useCallback(() => setOpen(false), []);
+  const ref = useDismiss(open, close);
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        aria-expanded={open}
+        aria-haspopup="menu"
+        className={`btn h-9 gap-1.5 px-2.5 text-[12.5px] ${isDemo ? "border-dashed text-mute" : ""}`}
+        title="Account, desk and settings"
+      >
+        <span className="max-w-[140px] truncate">{isDemo ? "Demo desk" : address ? shortAddr(address) : "Account"}</span>
+        <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden className={`text-mute transition-transform ${open ? "rotate-180" : ""}`}>
+          <path d="m2.5 3.8 2.5 2.5 2.5-2.5" stroke="currentColor" strokeWidth="1.3" fill="none" strokeLinecap="round" />
+        </svg>
+      </button>
+      {open ? (
+        <div role="menu" className="absolute right-0 top-11 z-50 w-[300px] rounded-lg border border-line bg-panel p-2 shadow-xl">
+          <WalletValue wethPrice={wethPrice} />
+          <label className="mt-2 block px-1 text-[11px] text-mute">
+            Desk to view
+            <select
+              value={viewAs}
+              onChange={(e) => setViewAs(e.target.value as "wallet" | `0x${string}`)}
+              aria-label="Desk to view"
+              className="field mt-1 w-full py-1.5"
+            >
+              <option value="wallet">{address ? `My desk · ${shortAddr(address)}` : "My desk"}</option>
+              {demoDesks.map((p) => (
+                <option key={p.follower} value={p.follower}>
+                  DEMO · {p.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <ul className="mt-2 border-t border-line pt-1.5">
+            {ACCOUNT_LINKS.map((l) => (
+              <li key={l.href}>
+                <Link href={l.href} onClick={close} role="menuitem" className="block rounded px-2 py-1.5 text-[13px] text-ink/85 hover:bg-panel-2 hover:text-ink">
+                  {l.label}
+                </Link>
+              </li>
+            ))}
+          </ul>
+          <div className="mt-1.5 border-t border-line pt-1.5">
+            <div className="px-2 pb-0.5 text-[10.5px] uppercase tracking-wide text-mute">Tools</div>
+            <ul>
+              {TOOL_LINKS.map((l) => (
+                <li key={l.href}>
+                  <Link href={l.href} onClick={close} role="menuitem" className="block rounded px-2 py-1.5 text-[12.5px] text-mute hover:bg-panel-2 hover:text-ink">
+                    {l.label}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </div>
+          <p className="mt-1.5 border-t border-line px-2 pt-2 text-[11px] text-mute">
+            <span className="text-good">● Non-custodial.</span> You sign every order; Autopilot signs only inside an onchain-scoped session.
+          </p>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function Header({ path, onOpenDrawer, wethPrice }: { path: string; onOpenDrawer: () => void; wethPrice?: number }) {
   const counts = useDeskCounts();
   const router = useRouter();
   const [q, setQ] = useState("");
@@ -399,19 +364,27 @@ function TopBar({
 
   return (
     <header className="sticky top-0 z-30 flex h-14 items-center gap-2 border-b border-line bg-bg/95 px-3 backdrop-blur-md lg:px-4">
-      <SidebarToggle collapsed={collapsed} onToggle={onToggle} onOpenDrawer={onOpenDrawer} />
-      <span className="mx-1 hidden h-5 w-px bg-line md:block" aria-hidden />
-      <nav className="hidden items-center gap-1 md:flex" aria-label="Workspace">
-        {TOP_TABS.map((t) => {
-          const on = active(path, t.href, t.match);
+      <button type="button" onClick={onOpenDrawer} className="btn btn-ghost h-9 w-9 border-transparent p-0 text-mute hover:text-ink lg:hidden" aria-label="Open navigation">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" aria-hidden>
+          <path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11" />
+        </svg>
+      </button>
+      <Link href="/" className="mr-2 flex shrink-0 items-center gap-2" title="PACT · desk overview">
+        <Mark size={22} />
+        <span className="text-[16px] font-semibold tracking-[0.14em] text-ink">PACT</span>
+      </Link>
+      <nav className="hidden items-center gap-0.5 lg:flex" aria-label="Workspaces">
+        {GLOBAL.map((w) => {
+          const on = active(path, w.href, w.match);
           return (
             <Link
-              key={t.href}
-              href={t.href}
+              key={w.href}
+              href={w.href}
               aria-current={on ? "page" : undefined}
-              className={`rounded-md px-3.5 py-1.5 text-[14px] transition-colors ${on ? "bg-panel-3 font-medium text-ink" : "text-ink/75 hover:text-ink"}`}
+              className={`flex items-center rounded-md px-3 py-1.5 text-[14px] transition-colors ${on ? "bg-panel-3 font-medium text-ink" : "text-ink/70 hover:text-ink"}`}
             >
-              {t.label}
+              {w.label}
+              {w.count ? <CountPill value={counts[w.count]} strong={w.count === "awaiting"} /> : null}
             </Link>
           );
         })}
@@ -425,7 +398,7 @@ function TopBar({
             router.push(`/discover${q.trim() ? `?q=${encodeURIComponent(q.trim())}` : ""}`);
           }}
         >
-          <label className="flex w-[min(320px,24vw)] min-w-[180px] items-center gap-2 rounded-lg border border-line bg-panel px-3 py-1.5 focus-within:border-accent">
+          <label className="flex w-[min(300px,22vw)] min-w-[180px] items-center gap-2 rounded-lg border border-line bg-panel px-3 py-1.5 focus-within:border-accent">
             <Icon name="search" className="shrink-0 text-mute" />
             <input
               ref={input}
@@ -438,35 +411,102 @@ function TopBar({
             <kbd className="rounded border border-line px-1.5 text-[10.5px] text-mute">⌘K</kbd>
           </label>
         </form>
-        <Link
-          href="/proposals"
-          className="btn btn-ghost relative h-9 w-9 p-0"
-          title="Plans awaiting your signature"
-          aria-label={`${counts.awaiting} plans awaiting your signature`}
-        >
+        <Link href="/leader" className="btn hidden h-9 px-3 text-[12.5px] md:inline-flex" title="Publish a structured plan as a leader">
+          Publish plan
+        </Link>
+        <Link href="/proposals" className="btn btn-ghost relative h-9 w-9 p-0" title="Plans awaiting your signature" aria-label={`${counts.awaiting} plans awaiting your signature`}>
           <Icon name="bell" />
           {counts.awaiting ? (
-            <span className="absolute -right-0.5 -top-0.5 min-w-[16px] rounded-full bg-[var(--accent-strong)] px-1 text-[10px] font-semibold leading-4 tnum text-white">
-              {counts.awaiting}
-            </span>
+            <span className="absolute -right-0.5 -top-0.5 min-w-[16px] rounded-full bg-[var(--accent-strong)] px-1 text-[10px] font-semibold leading-4 tnum text-white">{counts.awaiting}</span>
           ) : null}
         </Link>
-        <select
-          value={viewAs}
-          onChange={(e) => setViewAs(e.target.value as "wallet" | `0x${string}`)}
-          aria-label="Desk to view"
-          className={`field hidden w-auto py-1.5 pr-7 sm:block ${isDemo ? "border-dashed text-mute" : ""}`}
-        >
-          <option value="wallet">{address ? `My desk · ${shortAddr(address)}` : "My desk"}</option>
-          {demoDesks.map((p) => (
-            <option key={p.follower} value={p.follower}>
-              Demo · {p.label}
-            </option>
-          ))}
-        </select>
+        <NetworkChip />
+        <AccountMenu wethPrice={wethPrice} />
         <Connect />
       </div>
     </header>
+  );
+}
+
+/** Local tabs of the current workspace, directly under the header. */
+function WorkspaceTabs({ path }: { path: string }) {
+  const counts = useDeskCounts();
+  const ws = workspaceOf(path);
+  if (!ws?.tabs) return null;
+  return (
+    <nav className="scroll-thin flex h-10 items-center gap-1 overflow-x-auto border-b border-line bg-panel/40 px-3 lg:px-4" aria-label={`${ws.label} views`}>
+      <span className="mr-2 shrink-0 text-[11px] font-semibold uppercase tracking-wide text-mute">{ws.label}</span>
+      {ws.tabs.map((t) => {
+        if (!t.href) {
+          return (
+            <span key={t.label} title={t.planned} className="shrink-0 cursor-not-allowed rounded-md px-2.5 py-1 text-[12.5px] text-mute/60">
+              {t.label} <span className="text-[10px] uppercase">planned</span>
+            </span>
+          );
+        }
+        const on = active(path, t.href, t.match);
+        return (
+          <Link
+            key={t.href}
+            href={t.href}
+            aria-current={on ? "page" : undefined}
+            className={`flex shrink-0 items-center rounded-md px-2.5 py-1 text-[12.5px] transition-colors ${on ? "bg-panel-3 font-medium text-ink" : "text-ink/70 hover:text-ink"}`}
+          >
+            {t.label}
+            {t.count ? <CountPill value={counts[t.count]} strong={t.count === "awaiting"} /> : null}
+          </Link>
+        );
+      })}
+    </nav>
+  );
+}
+
+/** Phone and tablet: the same workspaces and tabs in a drawer (one navigation, not two). */
+function NavDrawer({ path, onClose }: { path: string; onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal="true" aria-label="Navigation">
+      <button type="button" className="absolute inset-0 bg-black/60" aria-label="Close navigation" onClick={onClose} />
+      <aside className="scroll-thin absolute inset-y-0 left-0 w-[280px] max-w-[85vw] overflow-y-auto border-r border-line bg-panel p-3">
+        <ul className="space-y-1">
+          {WORKSPACES.map((w) => (
+            <li key={w.href}>
+              <Link
+                href={w.href}
+                onClick={onClose}
+                className={`block rounded-md px-3 py-2 text-[14px] ${active(path, w.href, w.match) ? "bg-panel-3 font-medium text-ink" : "text-ink/80"}`}
+              >
+                {w.label}
+              </Link>
+              {w.tabs ? (
+                <ul className="ml-3 border-l border-line pl-2">
+                  {w.tabs
+                    .filter((t) => t.href)
+                    .map((t) => (
+                      <li key={t.href}>
+                        <Link href={t.href!} onClick={onClose} className={`block rounded px-2 py-1.5 text-[12.5px] ${active(path, t.href!, t.match) ? "text-ink" : "text-mute"}`}>
+                          {t.label}
+                        </Link>
+                      </li>
+                    ))}
+                </ul>
+              ) : null}
+            </li>
+          ))}
+          <li className="border-t border-line pt-1">
+            <Link href="/leader" onClick={onClose} className="block rounded-md px-3 py-2 text-[13px] text-accent">
+              Publish plan
+            </Link>
+          </li>
+          {TOOL_LINKS.map((l) => (
+            <li key={l.href}>
+              <Link href={l.href} onClick={onClose} className="block rounded-md px-3 py-1.5 text-[12.5px] text-mute">
+                {l.label}
+              </Link>
+            </li>
+          ))}
+        </ul>
+      </aside>
+    </div>
   );
 }
 
@@ -500,7 +540,7 @@ function Item({ href, children, title }: { href?: string; children: ReactNode; t
   );
 }
 
-function StatusBar({ health, collapsed }: { health: Health | null; collapsed: boolean }) {
+function StatusBar({ health }: { health: Health | null }) {
   const counts = useDeskCounts();
   const [now, setNow] = useState("");
   useEffect(() => {
@@ -515,11 +555,7 @@ function StatusBar({ health, collapsed }: { health: Health | null; collapsed: bo
   const price = Number(health?.price);
 
   return (
-    <footer
-      className={`scroll-thin fixed inset-x-0 bottom-0 z-30 flex h-8 items-center gap-1 overflow-x-auto border-t border-line bg-panel px-2 text-[11.5px] text-mute transition-[left] duration-200 ${
-        collapsed ? "lg:left-[64px]" : "lg:left-[240px]"
-      }`}
-    >
+    <footer className="scroll-thin fixed inset-x-0 bottom-0 z-30 flex h-8 items-center gap-1 overflow-x-auto border-t border-line bg-panel px-2 text-[11.5px] text-mute">
       <Item href="/proposals" title="Policy-approved plans awaiting your signature">
         Awaiting signature
         <span className={`rounded px-1 tnum ${counts.awaiting ? "bg-[var(--accent-strong)] text-white" : "bg-panel-3 text-mute"}`}>{counts.awaiting}</span>
@@ -534,9 +570,6 @@ function StatusBar({ health, collapsed }: { health: Health | null; collapsed: bo
       <span className="mx-1 h-3.5 w-px shrink-0 bg-line" aria-hidden />
       <Item title="WETH price reported by Definitive Flash">
         WETH <span className="tnum font-medium text-ink">{Number.isFinite(price) && price > 0 ? `$${price.toLocaleString("en-US", { maximumFractionDigits: 2 })}` : "—"}</span>
-      </Item>
-      <Item title="Base mainnet, chain 8453">
-        <span className="h-1.5 w-1.5 rounded-full bg-[#0052ff]" aria-hidden /> Base
       </Item>
       <div className="ml-auto flex shrink-0 items-center">
         <Item href="/settings/wallet" title={health?.error ?? "Definitive Flash API"}>
@@ -554,76 +587,21 @@ function StatusBar({ health, collapsed }: { health: Health | null; collapsed: bo
 
 /* ── Frame ────────────────────────────────────────────────────────────── */
 
-const SIDEBAR_KEY = "pact.sidebarCollapsed";
-
-/** Collapsed state is a per-browser preference, restored after hydration. */
-function useSidebarCollapsed() {
-  const [collapsed, setCollapsed] = useState(false);
-  useEffect(() => {
-    const id = setTimeout(() => {
-      try {
-        if (localStorage.getItem(SIDEBAR_KEY) === "1") setCollapsed(true);
-      } catch {
-        /* storage unavailable */
-      }
-    }, 0);
-    return () => clearTimeout(id);
-  }, []);
-  const toggle = () =>
-    setCollapsed((prev) => {
-      const next = !prev;
-      try {
-        localStorage.setItem(SIDEBAR_KEY, next ? "1" : "0");
-      } catch {
-        /* storage unavailable */
-      }
-      return next;
-    });
-  return { collapsed, toggle };
-}
-
 function Frame({ children }: { children: ReactNode }) {
   const path = usePathname();
   const health = useHealth();
   const [open, setOpen] = useState(false);
-  const { collapsed, toggle } = useSidebarCollapsed();
   const wethPrice = Number(health?.price) > 0 ? Number(health?.price) : undefined;
   const wide = path === "/trade";
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "b") {
-        e.preventDefault();
-        toggle();
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  });
-
   return (
     <div className="min-h-screen bg-bg">
-      <aside
-        className={`fixed inset-y-0 left-0 z-40 hidden overflow-hidden border-r border-line bg-panel transition-[width] duration-200 lg:block ${
-          collapsed ? "w-[64px]" : "w-[240px]"
-        }`}
-      >
-        <Sidebar path={path} onNavigate={() => undefined} wethPrice={wethPrice} collapsed={collapsed} onExpand={toggle} />
-      </aside>
-      {open ? (
-        <div className="fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal="true">
-          <button type="button" className="absolute inset-0 bg-black/60" aria-label="Close navigation" onClick={() => setOpen(false)} />
-          <aside className="absolute inset-y-0 left-0 w-[260px] max-w-[85vw] border-r border-line bg-panel">
-            <Sidebar path={path} onNavigate={() => setOpen(false)} wethPrice={wethPrice} />
-          </aside>
-        </div>
-      ) : null}
-      <div className={`transition-[padding] duration-200 ${collapsed ? "lg:pl-[64px]" : "lg:pl-[240px]"}`}>
-        <TopBar path={path} collapsed={collapsed} onToggle={toggle} onOpenDrawer={() => setOpen(true)} />
-        <DemoBanner />
-        <main className={`mx-auto w-full px-4 pb-14 lg:px-5 ${wide ? "max-w-none pt-4" : "max-w-[1480px] pt-6"}`}>{children}</main>
-        <StatusBar health={health} collapsed={collapsed} />
-      </div>
+      {open ? <NavDrawer path={path} onClose={() => setOpen(false)} /> : null}
+      <Header path={path} onOpenDrawer={() => setOpen(true)} wethPrice={wethPrice} />
+      <WorkspaceTabs path={path} />
+      <DemoBanner />
+      <main className={`mx-auto w-full px-4 pb-14 lg:px-5 ${wide ? "max-w-none pt-4" : "max-w-[1480px] pt-5"}`}>{children}</main>
+      <StatusBar health={health} />
     </div>
   );
 }

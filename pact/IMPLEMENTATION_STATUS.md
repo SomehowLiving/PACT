@@ -584,3 +584,51 @@ Not done: deploying the factory on Base (needs a funded deployer:
 live session-signed fill. Cancelling an Autopilot order from the review page still asks the
 EOA to sign; for a PACT wallet the cancel must be the owner's or session's 1271 signature.
 Setup: `cd contracts && forge install foundry-rs/forge-std --no-git` (lib is not committed).
+
+## Full test pass and two execution fixes it found (Nov 6, 2026)
+
+Run: typecheck, lint (whole repo), 146 unit, 9 live Flash/Base, 13 Foundry + Base-fork
+Permit2, 3 anvil, production build, e2e 40/40, UI e2e 18/18.
+
+1. **TWAP slices vs the cost budget.** Flash charges about $0.07–0.09 per TWAP slice (live:
+   $25 at 2 slices = 0.68 %, 10 slices = 3.49 %), so a small copy whose leader left the
+   slice count to Flash could exceed the 3 % budget and wait. `prepareCopyQuote` now
+   re-quotes once with 2 slices when the leader did not set a count and the quote is over
+   budget, keeps the cheaper quote, stores `twapBucketCount` on it, and `submitCopy` sends
+   exactly the quoted count. A leader-set count is never changed (the copy waits instead).
+   `lib/copy-quote.test.ts`.
+2. **An Autopilot session must outlast the protection it signs.** The session validator
+   checks expiry on every onchain use, so a stop signed by a 24 h session could not fire
+   after the session ends. Autopilot already refused ("protection: order outlives the
+   session"); the setup panel now defaults to 72 h and says why.
+
+Lint now ignores `.next-*` build folders and the Foundry project's vendored code.
+
+## UI milestone 1: one global navigation, Discover, leader profile (Nov 6, 2026)
+
+Following `PACT_UI_DESIGN_RULES.md` (now in the repo, referenced from `AGENTS.md`):
+- **Shell**: the sidebar and the duplicate top tabs are replaced by one header —
+  Trade · Discover · Plans · Portfolio · Orders, search, Publish plan, alerts, network chip,
+  account menu (wallet value, desk/DEMO selector, Mandate & risk, Wallet & Autopilot,
+  Preferences, Desk overview, and Tools: Demo lab, Classic desk, Classic leader ticket) and
+  Connect. Each workspace has local tabs under the header (Discover: All leaders / Following
+  / Watchlist·planned; Plans: Proposal inbox / PACT Assist / My published plans; Orders:
+  Orders & receipts / Activity log; Account: Mandate / Wallet / Preferences). Phone and
+  tablet use the same model in a drawer. Every existing route is unchanged and reachable.
+- **Discover**: leader identity links to the canonical profile (row click still opens the
+  quick-inspect panel); view, search and sort are in the URL (`?view=&q=&sort=key.dir`);
+  new follower-specific **Copyability** column (same engine as the copy drawer:
+  `components/pages/use-copyability.ts`), sortable.
+- **Leader profile** (`/leaders/[address]`): local tabs Overview / Plans / Execution
+  evidence / Paper copies in the URL (`?tab=`); Copy/Edit opens the existing follow drawer
+  (saving a mandate never trades); copyability for your desk; a plans table linking to each
+  plan page and to your proposal review.
+- No backend, API, policy, Flash or signing changes in this milestone.
+
+`e2e/ui.e2e.mjs` checks: no sidebar, exactly five header workspaces, local tabs, filter in
+the URL and after refresh, leader link to profile, profile tab in the URL, plan links,
+browser back/forward, account menu contents, follow drawer, all 16 routes load, tablet
+drawer and no horizontal scroll, no console errors.
+
+Open for review: Discover still leads with four featured cards above the table; Watchlist
+is a planned tab; Orders has no per-order route yet (`/orders/:id`) — next milestones.

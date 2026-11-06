@@ -29,13 +29,31 @@ import { MAX_LEADERS, useLeaderActions } from "@/components/pages/following-acti
 import { CopyDrawer, type DrawerTab } from "@/components/pages/copy-drawer";
 import { isExpired, leaderRows, pairLabel, relativeTime, rewardRisk, tokenSymbol, type LeaderRow } from "@/lib/views";
 import type { Strategy } from "@/lib/types";
+import type { Copyability, CopyVerdict } from "@/lib/copyability";
+import { COPY_VERDICT, useCopyabilityOf } from "@/components/pages/use-copyability";
 import { TrackRecord } from "@/components/pages/track-record";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 
 type Category = "all" | "disciplined" | "evidence" | "twap" | "following" | "demo";
-type SortKey = "plans" | "rr" | "evidence" | "followers" | "copied" | "drift" | "last";
+type SortKey = "plans" | "rr" | "evidence" | "copyable" | "followers" | "copied" | "drift" | "last";
+const SORT_KEYS: SortKey[] = ["plans", "rr", "evidence", "copyable", "followers", "copied", "drift", "last"];
+const VERDICT_RANK: Record<CopyVerdict, number> = { COPYABLE: 3, PARTLY: 2, NOT_COPYABLE: 1, NO_LIVE_PLANS: 0 };
+
+/** Follower-specific copyability: the verdict, and how many live plans would copy or scale. */
+function CopyCell({ c }: { c?: Copyability }) {
+  if (!c) return <span className="text-mute">—</span>;
+  const v = COPY_VERDICT[c.verdict];
+  const live = c.previews.length;
+  const ok = c.counts.COPY + c.counts.SCALE;
+  return (
+    <span className="inline-flex items-center gap-1.5" title={c.topReasons.length ? `Most common hold: ${c.topReasons.map((r) => r.reason.toLowerCase().replaceAll("_", " ")).join(", ")}` : v.label}>
+      <StatusBadge tone={v.tone}>{v.label.toLowerCase()}</StatusBadge>
+      {live ? <span className="tnum text-[11.5px] text-mute">{ok}/{live}</span> : null}
+    </span>
+  );
+}
 
 const CATEGORY_TEST: Record<Category, (r: LeaderRow) => boolean> = {
   all: () => true,
@@ -46,7 +64,7 @@ const CATEGORY_TEST: Record<Category, (r: LeaderRow) => boolean> = {
   demo: (r) => r.isDemo,
 };
 
-function sortValue(r: LeaderRow, key: SortKey): number {
+function sortValue(r: LeaderRow, key: SortKey, copyRank: Map<string, number>): number {
   switch (key) {
     case "plans":
       return r.activePlans * 1000 + r.plans;
@@ -56,6 +74,8 @@ function sortValue(r: LeaderRow, key: SortKey): number {
       return r.evidenceFound;
     case "followers":
       return r.pactFollowers;
+    case "copyable":
+      return copyRank.get(r.leader.toLowerCase()) ?? -1;
     case "copied":
       return r.copiedOrders;
     case "drift":
@@ -117,15 +137,32 @@ export function Discover() {
   const actions = useLeaderActions();
   const [category, setCategory] = useState<Category>("all");
   const [query, setQuery] = useState("");
-  // The top-bar search links here as /discover?q=0x…; read it after hydration.
+  const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({ key: "plans", dir: "desc" });
+  const [urlReady, setUrlReady] = useState(false);
+  // View, search and sort live in the URL (?view=&q=&sort=key.dir), so refresh and shared links
+  // keep them; the header search links here as /discover?q=0x…. Read after hydration.
   useEffect(() => {
     const id = setTimeout(() => {
-      const q = new URLSearchParams(window.location.search).get("q");
-      if (q) setQuery(q);
+      const p = new URLSearchParams(window.location.search);
+      const view = p.get("view");
+      if (view && view in CATEGORY_TEST) setCategory(view as Category);
+      if (p.get("q")) setQuery(p.get("q")!);
+      const [k, d] = (p.get("sort") ?? "").split(".");
+      if (SORT_KEYS.includes(k as SortKey)) setSort({ key: k as SortKey, dir: d === "asc" ? "asc" : "desc" });
+      setUrlReady(true);
     }, 0);
     return () => clearTimeout(id);
   }, []);
-  const [sort, setSort] = useState<{ key: SortKey; dir: SortDir }>({ key: "plans", dir: "desc" });
+  useEffect(() => {
+    if (!urlReady) return;
+    const p = new URLSearchParams();
+    if (category !== "all") p.set("view", category);
+    if (query.trim()) p.set("q", query.trim());
+    if (sort.key !== "plans" || sort.dir !== "desc") p.set("sort", `${sort.key}.${sort.dir}`);
+    const next = `${window.location.pathname}${p.size ? `?${p}` : ""}`;
+    if (next !== `${window.location.pathname}${window.location.search}`) window.history.replaceState(window.history.state, "", next);
+  }, [urlReady, category, query, sort]);
+  const copyabilityOf = useCopyabilityOf();
   const [picked, setPicked] = useState<string | null>(null);
   const [pickedPlan, setPickedPlan] = useState<string | null>(null);
   const [drawer, setDrawer] = useState<{ leader: `0x${string}`; tab: DrawerTab } | null>(null);
@@ -140,12 +177,22 @@ export function Discover() {
     [state, policy],
   );
 
+  const copyRank = useMemo(
+    () =>
+      new Map(
+        rows.map((r) => {
+          const c = copyabilityOf(r.leader);
+          return [r.leader.toLowerCase(), c ? VERDICT_RANK[c.verdict] * 1000 + c.counts.COPY + c.counts.SCALE : -1] as const;
+        }),
+      ),
+    [rows, copyabilityOf],
+  );
   const q = query.trim().toLowerCase();
   const shown = rows
     .filter(CATEGORY_TEST[category])
     .filter((r) => !q || r.leader.toLowerCase().includes(q))
     .sort((a, b) => {
-      const d = sortValue(a, sort.key) - sortValue(b, sort.key);
+      const d = sortValue(a, sort.key, copyRank) - sortValue(b, sort.key, copyRank);
       return sort.dir === "asc" ? d : -d;
     });
 
@@ -289,6 +336,9 @@ export function Discover() {
                     <SortTh k="evidence" sort={sort} onSort={onSort} right>
                       Evidence
                     </SortTh>
+                    <SortTh k="copyable" sort={sort} onSort={onSort}>
+                      Copyability
+                    </SortTh>
                     <SortTh k="followers" sort={sort} onSort={onSort} right>
                       PACT followers
                     </SortTh>
@@ -322,7 +372,14 @@ export function Discover() {
                       <td>
                         <div className="flex items-center gap-2">
                           <AddrAvatar value={r.leader} size={24} />
-                          <Addr value={r.leader} className="text-ink" />
+                          <Link
+                            href={`/leaders/${r.leader}`}
+                            onClick={(e) => e.stopPropagation()}
+                            className="text-ink hover:text-accent hover:underline"
+                            title="Open the leader profile"
+                          >
+                            <Addr value={r.leader} />
+                          </Link>
                           {r.isDemo ? <LayerTag layer="demo" compact /> : null}
                           {r.paused ? (
                             <StatusBadge tone="warn" icon="⏸">
@@ -346,6 +403,9 @@ export function Discover() {
                       <td className="r tnum">
                         <span className={r.evidenceFound ? "text-good" : "text-mute"}>{r.evidenceFound}</span>
                         <span className="text-mute"> / {r.plans}</span>
+                      </td>
+                      <td>
+                        <CopyCell c={copyabilityOf(r.leader)} />
                       </td>
                       <td className="r tnum text-ink">{r.pactFollowers}</td>
                       <td className="text-[12px]">

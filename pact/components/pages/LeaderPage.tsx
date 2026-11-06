@@ -1,12 +1,17 @@
 "use client";
 
-import { EvidenceBadge } from "@/components/pages/discover-parts";
+import { CopyDrawer, type DrawerTab } from "@/components/pages/copy-drawer";
+import { FollowButton } from "@/components/pages/Discover";
+import { EvidenceBadge, formatRR, GradeBadge, SideType } from "@/components/pages/discover-parts";
+import { useLeaderActions } from "@/components/pages/following-actions";
+import { COPY_VERDICT, useCopyabilityOf } from "@/components/pages/use-copyability";
+import { useDeskContext } from "@/components/DeskContext";
 import { TrackRecord } from "@/components/pages/track-record";
-import { Empty, MetricStrip, PageHeader, Panel, StatusBadge, type Tone } from "@/components/ui";
+import { ActionBadge, Empty, LayerTag, MetricStrip, PageHeader, Panel, Segmented, StatusBadge, type Tone } from "@/components/ui";
 import type { LeaderRecord } from "@/lib/leader-record";
 import type { LeaderEvidence, LeaderEvidenceStatus, ShadowCopy } from "@/lib/types";
 import { reasonLabel, shortAddr } from "@/lib/format";
-import { relativeTime } from "@/lib/views";
+import { isDemoAddress, isExpired, leaderRows, relativeTime, rewardRisk } from "@/lib/views";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
@@ -34,6 +39,9 @@ const SHADOW_TONE: Record<ShadowCopy["status"], Tone> = {
   WAITING_ENTRY: "neutral",
   NOT_COPYABLE: "warn",
 };
+
+const TABS = ["overview", "plans", "execution", "paper"] as const;
+type Tab = (typeof TABS)[number];
 
 const money = (v?: number) => (v === undefined ? "—" : `$${v.toLocaleString("en-US", { maximumFractionDigits: 2 })}`);
 const pct = (v?: number) => (v === undefined ? "—" : `${v > 0 ? "+" : ""}${(v * 100).toFixed(2)}%`);
@@ -66,36 +74,79 @@ export function LeaderPage({ address }: { address: string }) {
   const r = data?.record;
   const plans = [...(data?.plans ?? [])].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   const paper = plans.filter((p) => p.shadow);
+  const { state, follower } = useDeskContext();
+  const actions = useLeaderActions();
+  const copyabilityOf = useCopyabilityOf();
+  const copy = copyabilityOf(address);
+  const [drawer, setDrawer] = useState<DrawerTab | null>(null);
+  const [tab, setTab] = useState<Tab>("overview");
+  // The tab lives in the URL (?tab=) so a profile view can be shared and survives refresh.
+  useEffect(() => {
+    const id = setTimeout(() => {
+      const t = new URLSearchParams(window.location.search).get("tab");
+      if (t && (TABS as readonly string[]).includes(t)) setTab(t as Tab);
+    }, 0);
+    return () => clearTimeout(id);
+  }, []);
+  const changeTab = (t: Tab) => {
+    setTab(t);
+    const p = new URLSearchParams(window.location.search);
+    if (t === "overview") p.delete("tab");
+    else p.set("tab", t);
+    window.history.replaceState(window.history.state, "", `${window.location.pathname}${p.size ? `?${p}` : ""}`);
+  };
+  const rows = state ? leaderRows({ strategies: state.strategies, policies: state.policies, proposals: state.proposals, receipts: state.receipts }) : [];
+  const row = rows.find((x) => x.leader.toLowerCase() === address.toLowerCase());
+  const storePlans = (state?.strategies ?? []).filter((s) => s.leader.toLowerCase() === address.toLowerCase()).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  const myCopy = (planId: string) =>
+    follower ? state?.proposals.find((p) => p.strategyId === planId && p.follower.toLowerCase() === follower.toLowerCase()) : undefined;
+  const verdict = copy ? COPY_VERDICT[copy.verdict] : undefined;
+
   return (
     <div>
+      {drawer && row ? <CopyDrawer key={drawer} row={row} tab={drawer} plans={storePlans} onClose={() => setDrawer(null)} /> : null}
       <PageHeader
-        eyebrow="Leader"
+        eyebrow="Leader profile"
         title={`Leader ${shortAddr(address)}`}
         description="Everything here comes from evidence: the leader's own Flash orders and Base trades, PACT's paper copies of each plan (real Flash quotes, no signatures), and what followers' real copies did."
         actions={
-          r ? (
-            <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {r ? (
               <span title={r.shadow.probationReason}>
                 <StatusBadge tone={r.shadow.probation === "GRADUATED" ? "good" : "warn"} icon={r.shadow.probation === "GRADUATED" ? "✓" : "◷"}>
                   {r.shadow.probation === "GRADUATED" ? "passed probation" : "on probation"}
                 </StatusBadge>
               </span>
-              {r.shadow.uncopyable ? (
-                <span title="Most paper copies could not be copied within default limits (drift, cost or stale levels)">
-                  <StatusBadge tone="bad" icon="!">
-                    hard to copy
-                  </StatusBadge>
-                </span>
-              ) : null}
-              <Link className="btn" href="/discover">
-                All leaders
-              </Link>
-            </div>
-          ) : null
+            ) : null}
+            {r?.shadow.uncopyable ? (
+              <span title="Most paper copies could not be copied within default limits (drift, cost or stale levels)">
+                <StatusBadge tone="bad" icon="!">
+                  hard to copy
+                </StatusBadge>
+              </span>
+            ) : null}
+            {isDemoAddress(address) ? <LayerTag layer="demo" /> : null}
+            {row ? <FollowButton actions={actions} leader={row.leader} onOpen={(_l, t) => setDrawer(t)} /> : null}
+          </div>
         }
       />
       {error ? <Empty title="Leader not found">{error}</Empty> : null}
-      {r ? (
+      <div className="mb-4 flex items-center justify-between gap-3 border-b border-line pb-2">
+        <Segmented
+          value={tab}
+          onChange={changeTab}
+          options={[
+            { value: "overview", label: "Overview" },
+            { value: "plans", label: "Plans", count: plans.length },
+            { value: "execution", label: "Execution evidence" },
+            { value: "paper", label: "Paper copies", count: paper.length },
+          ]}
+        />
+        <span className="text-[11.5px] text-mute">
+          {row ? `${row.pactFollowers} PACT follower${row.pactFollowers === 1 ? "" : "s"}` : ""}
+        </span>
+      </div>
+      {r && tab === "overview" ? (
         <div className="space-y-4">
           <MetricStrip
             metrics={[
@@ -119,8 +170,140 @@ export function LeaderPage({ address }: { address: string }) {
               },
             ]}
           />
-
           <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_380px]">
+            <Panel title="Copyability for your desk" subtitle="What your mandate would do with this leader's live plans" layer="policy" bodyClassName="p-4">
+              {copy && verdict ? (
+                <>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <StatusBadge tone={verdict.tone}>{verdict.label}</StatusBadge>
+                    <span className="text-[12.5px] text-mute">
+                      {copy.previews.length
+                        ? `${copy.counts.COPY} copy · ${copy.counts.SCALE} scale · ${copy.counts.WAIT + copy.counts.REVIEW} held · ${copy.counts.DECLINE} declined of ${copy.previews.length} live`
+                        : "No live plans to evaluate"}
+                    </span>
+                  </div>
+                  {copy.topReasons.length ? (
+                    <p className="mt-2 text-[12px] text-mute">
+                      Most common hold: {copy.topReasons.map((x) => `${reasonLabel(x.reason)} (${x.count})`).join(", ")}
+                    </p>
+                  ) : null}
+                  <p className="mt-3 text-[11.5px] text-mute">
+                    Following saves a mandate for this leader; it never places a trade. Every copy is still checked and signed by you.
+                  </p>
+                </>
+              ) : (
+                <p className="text-[12.5px] text-mute">Connect a wallet or view a desk to see copyability.</p>
+              )}
+            </Panel>
+            <TrackRecord leader={address} />
+          </div>
+        </div>
+      ) : null}
+      {tab === "plans" ? (
+        <Panel title="Published plans" subtitle="Each plan opens its own page" layer="policy">
+          {storePlans.length ? (
+            <div className="overflow-x-auto">
+              <table className="tbl tbl-tight">
+                <thead>
+                  <tr>
+                    <th>Plan</th>
+                    <th>Type</th>
+                    <th className="r">Entry</th>
+                    <th className="r">Stop</th>
+                    <th className="r">Target</th>
+                    <th className="r">R:R</th>
+                    <th>Grade</th>
+                    <th>Evidence</th>
+                    <th>Your copy</th>
+                    <th>Window</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {storePlans.map((p) => {
+                    const mine = myCopy(p.id);
+                    const d = mine ? state?.decisions[mine.id] : undefined;
+                    return (
+                      <tr key={p.id}>
+                        <td className="max-w-[220px]">
+                          <Link href={`/plans/${p.id}`} className="block truncate text-ink hover:text-accent hover:underline">
+                            {p.title}
+                          </Link>
+                        </td>
+                        <td>
+                          <SideType plan={p} />
+                        </td>
+                        <td className="r">{p.entryReferencePrice ?? "—"}</td>
+                        <td className="r text-bad">{p.stopLossPrice ?? "—"}</td>
+                        <td className="r text-good">{p.takeProfitPrice ?? "—"}</td>
+                        <td className="r">{formatRR(rewardRisk(p))}</td>
+                        <td>
+                          <GradeBadge grade={p.leaderPlanGrade} />
+                        </td>
+                        <td>
+                          <EvidenceBadge status={p.leaderEvidenceStatus} />
+                        </td>
+                        <td>
+                          {mine && d ? (
+                            <Link href={`/review/${mine.id}`} title="Open your proposal review">
+                              <ActionBadge action={d.action} verdict={d.verdict} />
+                            </Link>
+                          ) : (
+                            <span className="text-mute">—</span>
+                          )}
+                        </td>
+                        <td className={isExpired(p) ? "text-mute line-through" : "text-mute"}>{relativeTime(p.expiresAt)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <Empty title="No plans published" />
+          )}
+        </Panel>
+      ) : null}
+      {tab === "execution" ? (
+          <Panel title="Plans and the leader's own execution" subtitle="What PACT checked for each plan, on Flash and on Base" layer="execution">
+            {plans.length ? (
+              <ul className="divide-y divide-line-2">
+                {plans.map((p) => (
+                  <li key={p.id} className="px-4 py-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <Link href={`/plans/${p.id}`} className="text-[13px] text-ink hover:text-accent hover:underline">
+                          {p.title}
+                        </Link>
+                        <span className="ml-2 text-[11px] text-mute">
+                          {p.side} {p.orderType} · entry {p.entryReferencePrice ?? "—"} · stop {p.stopLossPrice ?? "—"} · target{" "}
+                          {p.takeProfitPrice ?? "—"} · {relativeTime(p.createdAt)}
+                        </span>
+                      </div>
+                      <EvidenceBadge status={p.status} />
+                    </div>
+                    {p.evidence?.checks.length ? (
+                      <ul className="mt-2 grid gap-x-6 gap-y-1 text-[11.5px] md:grid-cols-2">
+                        {p.evidence.checks.map((c) => (
+                          <li key={c.id} className="flex min-w-0 items-baseline justify-between gap-2">
+                            <span className="truncate text-mute" title={c.detail}>
+                              {c.label}: {c.detail}
+                            </span>
+                            <span className={c.result === "MATCH" ? "text-good" : c.result === "MISMATCH" ? "text-bad" : "text-mute"}>{c.result}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="mt-1 text-[11.5px] text-mute">No execution evidence attached.</p>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <Empty title="No plans published" />
+            )}
+          </Panel>
+      ) : null}
+      {tab === "paper" ? (
             <Panel
               title="Paper copies"
               subtitle="PACT copies every new buy plan at $100 with a real Flash quote and no signature, then replays the plan's stop and target on market candles"
@@ -190,48 +373,6 @@ export function LeaderPage({ address }: { address: string }) {
                 both levels counts as the stop), exit cost assumed equal to entry cost. Never mixed with real fills.
               </p>
             </Panel>
-            <TrackRecord leader={address} />
-          </div>
-
-          <Panel title="Plans and the leader's own execution" subtitle="What PACT checked for each plan, on Flash and on Base" layer="execution">
-            {plans.length ? (
-              <ul className="divide-y divide-line-2">
-                {plans.map((p) => (
-                  <li key={p.id} className="px-4 py-3">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div className="min-w-0">
-                        <Link href={`/plans/${p.id}`} className="text-[13px] text-ink hover:text-accent hover:underline">
-                          {p.title}
-                        </Link>
-                        <span className="ml-2 text-[11px] text-mute">
-                          {p.side} {p.orderType} · entry {p.entryReferencePrice ?? "—"} · stop {p.stopLossPrice ?? "—"} · target{" "}
-                          {p.takeProfitPrice ?? "—"} · {relativeTime(p.createdAt)}
-                        </span>
-                      </div>
-                      <EvidenceBadge status={p.status} />
-                    </div>
-                    {p.evidence?.checks.length ? (
-                      <ul className="mt-2 grid gap-x-6 gap-y-1 text-[11.5px] md:grid-cols-2">
-                        {p.evidence.checks.map((c) => (
-                          <li key={c.id} className="flex min-w-0 items-baseline justify-between gap-2">
-                            <span className="truncate text-mute" title={c.detail}>
-                              {c.label}: {c.detail}
-                            </span>
-                            <span className={c.result === "MATCH" ? "text-good" : c.result === "MISMATCH" ? "text-bad" : "text-mute"}>{c.result}</span>
-                          </li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <p className="mt-1 text-[11.5px] text-mute">No execution evidence attached.</p>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <Empty title="No plans published" />
-            )}
-          </Panel>
-        </div>
       ) : null}
     </div>
   );
