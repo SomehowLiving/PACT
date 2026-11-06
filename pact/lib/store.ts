@@ -455,7 +455,9 @@ export function leaderDailyRealizedLoss(
   return m.receipts
     .filter((receipt) => {
       if (receipt.follower.toLowerCase() !== follower.toLowerCase()) return false;
-      if (receipt.createdAt < from || !(receipt.realizedPnlUsd && receipt.realizedPnlUsd < 0)) {
+      // A loss counts on the day it was realized (the exit fill), not the day of the entry.
+      const realizedAt = receipt.position?.realizedAt ?? receipt.createdAt;
+      if (realizedAt < from || !(receipt.realizedPnlUsd && receipt.realizedPnlUsd < 0)) {
         return false;
       }
       return (
@@ -798,6 +800,16 @@ function orderFacts(r: Receipt) {
       averageFillPrice: r.averageFillPrice,
       entryDriftBps: r.entryDriftBps,
       feesUsd: r.feesUsd,
+      position: r.position
+        ? {
+            entryUnits: r.position.entryUnits,
+            entryCostUsd: r.position.entryCostUsd,
+            exitUnits: r.position.exitUnits,
+            exitProceedsUsd: r.position.exitProceedsUsd,
+            realizedPnlUsd: r.position.realizedPnlUsd,
+            closed: r.position.closed,
+          }
+        : undefined,
       transactions: [...new Set((r.fills ?? []).map((f) => f.transactionId).filter(Boolean))],
       protection: r.protection
         ? {

@@ -1,5 +1,6 @@
-import { fillExecutionMetrics, getOrder, type FlashOrder, type FlashOrderDetail } from "./flash";
-import { patchReceipt, snapshot } from "./store";
+import { fillExecutionMetrics, getOrder, type FlashFillRow, type FlashOrder, type FlashOrderDetail } from "./flash";
+import { legFacts, positionFrom } from "./positions";
+import { patchReceipt, policyFor, rebuildFor, snapshot } from "./store";
 import type { Receipt } from "./types";
 import { protectionFrom } from "./verdict";
 
@@ -39,9 +40,14 @@ export async function refreshReceipt(receipt: Receipt): Promise<RefreshResult> {
 
   let protection = protectionFrom(order, quote?.attachedBracket, receipt.protection);
   let protectionOrder: FlashOrder | undefined;
+  let exitFills: FlashFillRow[] | undefined;
+  let exitRead = !protection?.bracketOrderId;
   if (protection?.bracketOrderId) {
     try {
-      protectionOrder = (await getOrder(protection.bracketOrderId, receipt.follower)).order;
+      const exit = await getOrder(protection.bracketOrderId, receipt.follower);
+      protectionOrder = exit.order;
+      exitFills = exit.fills ?? [];
+      exitRead = true;
       protection = {
         ...protection,
         orderStatus: protectionOrder.status ?? protection.orderStatus,
@@ -51,6 +57,16 @@ export async function refreshReceipt(receipt: Receipt): Promise<RefreshResult> {
       /* keep the last known protection state */
     }
   }
+
+  // Buys open a position; its protective order's fills close it. If the protective order could
+  // not be read this time, keep the last known position rather than forget realized P&L.
+  const side = proposal?.side ?? "buy";
+  const position =
+    side === "buy"
+      ? exitRead
+        ? positionFrom(legFacts(fills), exitFills ? legFacts(exitFills) : undefined)
+        : receipt.position
+      : undefined;
 
   const updated =
     patchReceipt(receipt.proposalId, {
@@ -71,7 +87,18 @@ export async function refreshReceipt(receipt: Receipt): Promise<RefreshResult> {
       entryDriftBps: metrics.entryDriftBps,
       feesUsd: metrics.feesUsd,
       protection,
+      position,
+      realizedPnlUsd: position && position.exitUnits > 0 ? position.realizedPnlUsd : receipt.realizedPnlUsd,
     }) ?? receipt;
+
+  // A new realized loss can trip the follower's per-leader breaker: re-decide waiting copies.
+  if (
+    updated.realizedPnlUsd !== receipt.realizedPnlUsd &&
+    (updated.realizedPnlUsd ?? 0) < 0 &&
+    policyFor(receipt.follower).enableLeaderLossCircuitBreaker
+  ) {
+    await rebuildFor(receipt.follower);
+  }
 
   return { ok: true, receipt: updated, detail, protectionOrder };
 }

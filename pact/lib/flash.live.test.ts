@@ -74,4 +74,15 @@ describe.skipIf(!LIVE)("Flash live quotes (no orders)", () => {
     const quote = await postQuote(body);
     expect(quote.quoteId).toBeTruthy();
   }, 30_000);
+
+  it("marks an open position at Flash's exit quote, net of fees and below the mid", async () => {
+    const { exitMark } = await import("./marks");
+    const { assetPrice } = await import("./price");
+    const mark = await exitMark({ chain: "base", targetAsset: weth, contraAsset: usdc, units: 0.01, funder: FUNDER });
+    expect(mark?.basis).toBe("flash-exit-quote");
+    const mid = await assetPrice("base", weth);
+    // Selling costs fees and impact, so the exit price sits a little under the mid.
+    expect(mark!.price).toBeLessThan(mid * 1.01);
+    expect(mark!.price).toBeGreaterThan(mid * 0.9);
+  }, 30_000);
 });

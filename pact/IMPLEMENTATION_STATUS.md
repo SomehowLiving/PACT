@@ -379,3 +379,29 @@ detected; reload from file continues the chain; demo decisions name their mandat
 withdrawals appended; reads do not write; unchanged polls do not log). 100 unit tests pass.
 e2e 17/17: after the real browser flow the log verifies, and the copy's trail reads
 `decision.made → quote.stored → order.rejected` (the throwaway wallet has no USDC).
+
+## Phase 2 · step 3: positions, realized P&L and the loss breaker (Nov 6, 2026)
+
+Before: `realizedPnlUsd` was never written, so the per-leader loss breaker could never trip,
+and Portfolio showed two "planned" P&L placeholders.
+
+| Piece | Behaviour |
+| --- | --- |
+| `lib/positions.ts` | `legFacts` sums finalised fills only (reorged and unconfirmed ignored). `positionFrom(entry, exit)`: average cost from entry fills, exit from the protective order's sell fills, realized = proceeds − sold units × average cost, open units and cost; exits clamped to what was bought. Fee convention matches `executionMetrics`: buy amounts already net, sell `feeNotional` subtracted, so realized P&L is never overstated |
+| `refreshReceipt` | now keeps the protective order's fills, writes `receipt.position` and `realizedPnlUsd` (buys only); if the protective order cannot be read it keeps the last known position. A new realized loss re-decides the follower's waiting copies when the breaker is on |
+| Breaker | `leaderDailyRealizedLoss` counts a loss on the day of the exit fill (`realizedAt`), not the entry day |
+| `lib/marks.ts` | open size marked at Flash's own **sell quote** for that size, fees off (what the follower would actually get); Flash's search mid only when Flash will not quote, labelled `flash-search-mid`; 30 s cache per size bucket |
+| `GET /api/positions?follower=` | per-copy positions, one exit quote per asset for the total open size, totals (realized, realized today, unrealized, open value/cost, unpriced count). Read-only |
+| Evidence | `order.updated` now carries the position facts, so a realized result is in the hash chain |
+| UI | Portfolio "P&L" panel replaces the two placeholders; receipt shows a Position row |
+
+Tests: `lib/positions.test.ts` (finalised-only fills; stop-out loss net of fee; partial exit
+split into realized and marked; no fill → no position; exit clamp; and end to end with Flash
+mocked: a stopped-out protective order records −$0.65, the breaker holds that leader's
+waiting copies, the evidence log carries it). Live (`FLASH_LIVE=1`, quotes only): the exit
+mark comes from a real Flash sell quote, slightly under the mid. 105 unit tests pass,
+4 live pass, e2e 17/17. Visual check on seeded receipts: the panel shows realized −$0.65 and
+an open 0.006 WETH marked at a live Flash exit quote.
+
+Not covered: positions closed outside PACT (a manual sell from the wallet) are invisible, and
+sells copied from a leader have no cost basis, so they get no P&L.

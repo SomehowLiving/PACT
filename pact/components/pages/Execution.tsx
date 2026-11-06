@@ -234,6 +234,18 @@ function OrderDetail({ row }: { row: ExecutionRow }) {
                   : "—"
             }
           />
+          {receipt.position ? (
+            <KV
+              k="Position"
+              v={
+                receipt.position.closed
+                  ? `closed · realized ${receipt.position.realizedPnlUsd < 0 ? "−" : "+"}$${Math.abs(receipt.position.realizedPnlUsd).toFixed(2)}`
+                  : `${receipt.position.openUnits.toFixed(5)} WETH open at $${receipt.position.averageCost.toFixed(2)}${
+                      receipt.position.exitUnits > 0 ? ` · realized $${receipt.position.realizedPnlUsd.toFixed(2)}` : ""
+                    }`
+              }
+            />
+          ) : null}
           <KV
             k="Protection"
             v={

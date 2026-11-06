@@ -240,10 +240,30 @@ export type Receipt = {
   pendingFillCount?: number;
   /** The attached protection pair, as Flash reports it, compared with what the follower chose. */
   protection?: Protection;
-  /** Realized P&L from a completed PACT position when an evidence source supplies it. */
+  /** Realized P&L from Flash fills (see `position`). */
   realizedPnlUsd?: number;
+  /** Entry and exit from Flash's own fill rows; buys only. */
+  position?: Position;
   notionalUsd: number;
   createdAt: string;
+};
+
+/** A buy copy's position, computed from Flash's finalised entry and protective-order fills. */
+export type Position = {
+  basis: "flash-fills";
+  entryUnits: number;
+  entryCostUsd: number;
+  averageCost: number;
+  exitUnits: number;
+  exitProceedsUsd: number;
+  openUnits: number;
+  openCostUsd: number;
+  /** On units already sold by the protective order. */
+  realizedPnlUsd: number;
+  /** Time of the last exit fill: the day a realized loss counts toward the breaker. */
+  realizedAt?: string;
+  feesUsd: number;
+  closed: boolean;
 };
 
 export type Protection = {

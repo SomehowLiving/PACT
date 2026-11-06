@@ -9,13 +9,14 @@ import {
   Meter,
   PageHeader,
   Panel,
-  Planned,
   StatusBadge,
 } from "@/components/ui";
 import { usd } from "@/lib/format";
 import { CLOSED_STATUSES, capacity, exposureGroups, orderStatusLabel, pairLabel, type ExposureGroup } from "@/lib/views";
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import type { Mark } from "@/lib/positions";
+import type { Position } from "@/lib/types";
 import { erc20Abi, formatUnits } from "viem";
 import { useBalance, useReadContracts } from "wagmi";
 
@@ -283,18 +284,129 @@ export function Portfolio() {
                 </p>
               )}
             </Panel>
-            <div className="space-y-3">
-              <Planned title="Realized P&L">
-                Needs closed Flash receipts with exit fills. PACT shows nothing here until that evidence exists.
-              </Planned>
-              <Planned title="Unrealized P&L">
-                Needs a labelled mark-to-market price source for each open position. Not estimated from the chart.
-              </Planned>
-            </div>
+            <PnlPanel follower={follower} />
           </div>
         </div>
       )}
     </div>
+  );
+}
+
+type PositionsPayload = {
+  positions: {
+    proposalId: string;
+    flashOrderId?: string;
+    title?: string;
+    leader?: string;
+    position: Position;
+    mark?: Mark;
+    valueUsd: number;
+    unrealizedPnlUsd: number;
+  }[];
+  totals: { realizedUsd: number; realizedTodayUsd: number; unrealizedUsd: number; openValueUsd: number; openCostUsd: number; unmarked: number };
+};
+
+function signedUsd(v: number) {
+  if (Math.abs(v) < 0.005) return usd(0);
+  return `${v > 0 ? "+" : "−"}${usd(Math.abs(v))}`;
+}
+
+function pnlClass(v: number) {
+  return Math.abs(v) < 0.005 ? "text-ink" : v > 0 ? "text-good" : "text-bad";
+}
+
+const MARK_LABEL: Record<Mark["basis"], string> = {
+  "flash-exit-quote": "Flash exit quote",
+  "flash-search-mid": "Flash mid (no exit quote)",
+};
+
+/** Realized P&L from Flash fills and open positions marked at Flash's own exit quote. */
+function PnlPanel({ follower }: { follower?: `0x${string}` }) {
+  const [data, setData] = useState<PositionsPayload | null>(null);
+  useEffect(() => {
+    if (!follower) return;
+    let live = true;
+    const load = () =>
+      void fetch(`/api/positions?follower=${follower}`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((body: PositionsPayload | null) => {
+          if (live && body) setData(body);
+        })
+        .catch(() => undefined);
+    const first = setTimeout(load, 0);
+    const id = setInterval(load, 30_000);
+    return () => {
+      live = false;
+      clearTimeout(first);
+      clearInterval(id);
+    };
+  }, [follower]);
+
+  const rows = follower ? (data?.positions ?? []) : [];
+  const t = data?.totals;
+  const basis = rows.find((r) => r.mark)?.mark?.basis;
+  return (
+    <Panel title="P&L" subtitle="From Flash fill rows; open size marked at Flash's exit quote" layer="execution" bodyClassName="p-4">
+      {!rows.length || !t ? (
+        <p className="text-[12.5px] leading-relaxed text-mute">
+          No filled PACT copies yet. Realized P&amp;L appears once a protective order sells; open positions are valued at
+          what Flash would pay to sell them now, never from the chart.
+        </p>
+      ) : (
+        <>
+          <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+            <div>
+              <div className="label">Realized</div>
+              <div className={`tnum text-[15px] font-semibold ${pnlClass(t.realizedUsd)}`}>{signedUsd(t.realizedUsd)}</div>
+              <div className="text-[11px] text-mute">today {signedUsd(t.realizedTodayUsd)}</div>
+            </div>
+            <div>
+              <div className="label">Unrealized</div>
+              <div className={`tnum text-[15px] font-semibold ${pnlClass(t.unrealizedUsd)}`}>{signedUsd(t.unrealizedUsd)}</div>
+              <div className="text-[11px] text-mute">
+                {usd(t.openValueUsd)} value · {usd(t.openCostUsd)} cost
+                {t.unmarked ? ` · ${t.unmarked} unpriced` : ""}
+              </div>
+            </div>
+          </div>
+          <table className="tbl tbl-tight mt-4">
+            <thead>
+              <tr>
+                <th>Copy</th>
+                <th className="r">Open</th>
+                <th className="r">Avg cost</th>
+                <th className="r">P&amp;L</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => {
+                const pnl = r.position.closed ? r.position.realizedPnlUsd : r.position.realizedPnlUsd + r.unrealizedPnlUsd;
+                return (
+                  <tr key={r.proposalId}>
+                    <td className="max-w-[160px] truncate">
+                      {r.flashOrderId ? (
+                        <Link className="text-accent hover:underline" href="/execution">
+                          {r.title ?? r.flashOrderId.slice(0, 8)}
+                        </Link>
+                      ) : (
+                        (r.title ?? "—")
+                      )}
+                    </td>
+                    <td className="r">{r.position.closed ? <span className="text-mute">closed</span> : `${r.position.openUnits.toFixed(5)} WETH`}</td>
+                    <td className="r">{usd(r.position.averageCost)}</td>
+                    <td className={`r ${pnlClass(pnl)}`}>{signedUsd(pnl)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          <p className="mt-3 text-[11px] leading-relaxed text-mute">
+            Realized = protective-order sell fills minus average entry cost, sell fees taken off.
+            {basis ? ` Open size priced by ${MARK_LABEL[basis]}.` : ""} Positions closed outside PACT are not visible here.
+          </p>
+        </>
+      )}
+    </Panel>
   );
 }
 
