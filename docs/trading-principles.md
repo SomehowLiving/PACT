@@ -47,7 +47,7 @@ the units of the asset sold.
 leader's stop loses the budget.
 
 ```math
-\text{risk per unit} = \lvert \text{entry} - \text{stop} \rvert
+\text{risk per unit} = |\text{entry} - \text{stop}|
 \qquad
 \text{units} = \frac{\text{risk budget}}{\text{risk per unit}}
 \qquad
@@ -63,7 +63,7 @@ unfilled stop can lose more.
 brought back to the usual size:
 
 ```math
-\text{ratio} = \frac{\text{plan size}}{\operatorname{median}(\text{leader's last same-side plans})}
+\text{ratio} = \frac{\text{plan size}}{\text{median}(\text{leader's last same-side plans})}
 \qquad (\ge 3 \text{ prior plans})
 ```
 
@@ -76,7 +76,7 @@ After sizing, the copy must fit every cap. If it does not, PACT scales it to the
 that fits:
 
 ```math
-\text{cap} = \min\big(\text{per-order max},\ \text{daily max} - \text{spent today},\ \text{leader sleeve} - \text{leader spent today},\ \text{asset cap} - \text{asset exposure},\ \text{plan capacity}\big)
+\text{cap} = \min(\text{per-order max},\ \text{daily max} - \text{spent today},\ \text{leader sleeve} - \text{leader spent today},\ \text{asset cap} - \text{asset exposure},\ \text{plan capacity})
 ```
 
 - `cap ≥ minimum order` and scaling allowed → **SCALE** to `cap`, with the cap's reasons
@@ -136,7 +136,7 @@ Run on Flash's real quote, before anything is signed (`decideExecution`):
 **Reference divergence:**
 
 ```math
-\text{divergence (bps)} = \left(\frac{\text{price}}{\text{Chainlink}} - 1\right) \times 10{,}000
+\text{divergence (bps)} = (\frac{\text{price}}{\text{Chainlink}} - 1) \times 10{,}000
 ```
 
 **Execution cost.** Flash can report fees in a fee field or fold them into the price, so PACT
