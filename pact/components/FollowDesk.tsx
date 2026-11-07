@@ -1,5 +1,6 @@
 "use client";
 
+import { DecisionTrace } from "@/components/DecisionTrace";
 import { MAX_LEADERS } from "@/lib/constants";
 import { Gauge } from "@/components/Gauge";
 import { CopyActionPill } from "@/components/CopyActionPill";
@@ -558,6 +559,8 @@ export function ReviewWorkspace({
           <ProposalCard proposal={proposal} decision={decision} receipt={receipt} onDone={onDone} reviewMode />
         </div>
       </div>
+
+      <DecisionTrace proposal={proposal} decision={decision} />
 
       <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-line px-5 py-3.5 text-[13px] text-ink/75">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden>

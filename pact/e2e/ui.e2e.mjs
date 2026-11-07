@@ -98,6 +98,18 @@ check("Wallet settings shows the World ID panel", (await p.getByText("one unique
 await p.goto(`${BASE}/settings/mandate`, { waitUntil: "networkidle" });
 check("mandate offers verified-human leaders only", (await p.getByText("Copy only leaders verified as unique humans").count()) > 0);
 
+// The deep view of a decision: every check, with numbers and sources.
+{
+  const st = await (await fetch(`${BASE}/api/state?follower=0x7777777777777777777777777777777777777777`)).json();
+  const prop = st.proposals.find((x) => x.follower.toLowerCase() === "0x7777777777777777777777777777777777777777" && st.decisions[x.id]);
+  await p.goto(`${BASE}/review/${prop.id}`, { waitUntil: "networkidle" });
+  const trace = p.locator(".panel", { hasText: "How PACT decided" }).first();
+  await trace.waitFor({ timeout: 20000 });
+  await trace.getByRole("button", { name: /See all/ }).click();
+  const n = await trace.locator("li").count();
+  check("the review page shows every check PACT ran, with its source", n >= 25 && (await trace.innerText()).includes("Chainlink"), `${n} checks`);
+}
+
 // canonical order link
 await p.goto(`${BASE}/orders/ord_test_123`, { waitUntil: "networkidle" });
 check("order link opens Orders with that order", p.url().includes("/execution?order=ord_test_123"), p.url());
