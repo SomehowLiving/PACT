@@ -65,6 +65,21 @@ describe.skipIf(!LIVE)("Flash live quotes (no orders)", () => {
     expect(Number(m.allInPrice)).toBeGreaterThan(Number(m.executionPrice));
   }, 30_000);
 
+  it("quotes PACT's fee (flashIntegratorFeeBps) into the all-in cost, and the guard still passes", async () => {
+    const shape = (integratorFeeBps?: string) => quoteRequest({
+      targetAsset: weth, contraAsset: usdc, side: "buy", qty: "20", orderType: "twap", funderAddress: FUNDER,
+      durationSeconds: 600, twapBucketCount: 2, planExpiresAt: inHours(4), integratorFeeBps,
+    });
+    const [free, paid] = await Promise.all([postQuote(shape()), postQuote(shape("10"))]);
+    const feeFree = Number(executionMetrics(free, "buy").feeNotional);
+    const feePaid = Number(executionMetrics(paid, "buy").feeNotional);
+    // 10 bps of $20 is $0.02, on top of Flash's own fee.
+    expect(feePaid - feeFree).toBeGreaterThan(0.015);
+    expect(feePaid - feeFree).toBeLessThan(0.03);
+    const entry = verifySigning({ chain: "base", follower: FUNDER, side: "buy", targetAsset: weth, contraAsset: usdc, qty: "20", quote: paid.evm ?? {} });
+    expect(entry.checks.filter((c) => c.level === "fail")).toEqual([]);
+  }, 30_000);
+
   it("keeps a TWAP copy inside a short plan window", async () => {
     const body = quoteRequest({
       targetAsset: weth, contraAsset: usdc, side: "buy", qty: "20", orderType: "twap", funderAddress: FUNDER,

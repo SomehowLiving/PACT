@@ -2,7 +2,9 @@ import { executionMetrics, postQuote, quoteRequest } from "./flash";
 import { bracketPriceFloor, verifyBracketSigning, verifySigning, type GuardResult } from "./guard";
 import { decideExecution, DEFAULT_MAX_EXECUTION_COST, effectiveLimitNotionalPrice } from "./policy";
 import { referenceAtQuote } from "./reference";
-import { decisionFor, openSpendUnits, policyFor, saveQuote, updateDecision } from "./store";
+import { PLAYGROUND_KEY_PREFIX } from "./constants";
+import { copyFee, pactFeeRate } from "./fees";
+import { conductFor, decisionFor, leaderProbation, openSpendUnits, policyFor, saveQuote, updateDecision } from "./store";
 import type { AttachedBracket, Decision, Proposal, StoredQuote } from "./types";
 
 /**
@@ -46,6 +48,14 @@ export async function prepareCopyQuote(proposal: Proposal, funder: `0x${string}`
   const attachedBracket = attachedBracketFor(proposal);
   const policy = policyFor(proposal.follower);
   const effectiveLimit = effectiveLimitNotionalPrice(proposal, policy);
+  // PACT's fee: charged only on copies of a leader who has earned it (lib/fees). Decided once,
+  // before the quote, and submitted unchanged with the order, as Flash requires.
+  const pactFee = copyFee({
+    rateBps: pactFeeRate(),
+    probation: leaderProbation(proposal.leader),
+    conductLevel: conductFor(proposal.leader)?.level,
+    ownIntegratorKey: !(process.env.FLASH_API_KEY ?? "").startsWith(PLAYGROUND_KEY_PREFIX),
+  });
 
   try {
     const build = (twapBucketCount = proposal.twapBucketCount) => quoteRequest({
@@ -66,6 +76,7 @@ export async function prepareCopyQuote(proposal: Proposal, funder: `0x${string}`
       attachedBracket,
       // A resting copy (and its TWAP) must not outlive the leader's copy window.
       planExpiresAt: proposal.expiresAt,
+      integratorFeeBps: pactFee.bps,
     });
     let request = build();
     let quote = await postQuote(request);
@@ -158,6 +169,7 @@ export async function prepareCopyQuote(proposal: Proposal, funder: `0x${string}`
       maxPriceImpact: request.maxPriceImpact,
       maxSlippage: request.maxSlippage,
       twapBucketCount: request.twapBucketCount,
+      pactFee,
       attachedBracket:
         attachedBracket && quote.attachedBracket
           ? {

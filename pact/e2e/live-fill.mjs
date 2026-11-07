@@ -32,22 +32,52 @@ mkdirSync(OUT, { recursive: true });
 
 const env = (() => {
   const out = {};
-  try {
-    for (const line of readFileSync(join(process.cwd(), ".env.local"), "utf8").split("\n")) {
-      const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/);
-      if (m) out[m[1]] = m[2].replace(/^["']|["']$/g, "");
+  // pact/.env.local, then the repo root .env (where PACT_PRIVATE_KEY may live). Never printed.
+  for (const file of [join(process.cwd(), "..", ".env"), join(process.cwd(), ".env.local")]) {
+    try {
+      for (const line of readFileSync(file, "utf8").split("\n")) {
+        const m = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/);
+        if (m) out[m[1]] = m[2].replace(/^["']|["']$/g, "");
+      }
+    } catch {
+      // file absent
     }
-  } catch {
-    // no .env.local
   }
   return { ...out, ...process.env };
 })();
 const pk = (v) => (v && /^(0x)?[0-9a-fA-F]{64}$/.test(v) ? (v.startsWith("0x") ? v : `0x${v}`) : undefined);
-const followerKey = pk(env.LIVE_FOLLOWER_PRIVATE_KEY);
+const followerKey = pk(env.LIVE_FOLLOWER_PRIVATE_KEY) ?? pk(env.PACT_PRIVATE_KEY);
 if (!followerKey) {
-  console.log("Set LIVE_FOLLOWER_PRIVATE_KEY in pact/.env.local (a dedicated, funded wallet). Nothing was done.");
+  console.log("Set LIVE_FOLLOWER_PRIVATE_KEY in pact/.env.local or PACT_PRIVATE_KEY in .env (a dedicated, funded wallet). Nothing was done.");
   process.exit(1);
 }
+// LIVE_VIDEO=1 records the review and signing as a demo segment, with on-screen captions.
+const VIDEO = env.LIVE_VIDEO === "1";
+async function caption(page, text) {
+  if (!VIDEO) return;
+  await page
+    .evaluate((t) => {
+      let el = document.getElementById("__demo_caption");
+      if (!el) {
+        el = document.createElement("div");
+        el.id = "__demo_caption";
+        el.style.cssText =
+          "position:fixed;left:50%;bottom:28px;transform:translateX(-50%);z-index:2147483647;max-width:1100px;padding:12px 22px;border-radius:14px;background:rgba(14,12,10,.92);border:1px solid rgba(240,230,210,.25);color:#f3ead8;font:500 19px/1.4 system-ui,sans-serif;text-align:center;box-shadow:0 10px 30px rgba(0,0,0,.5);pointer-events:none";
+        document.body.appendChild(el);
+      }
+      el.textContent = t;
+    }, text)
+    .catch(() => undefined);
+}
+// A demo step: never allowed to interrupt the real-money flow.
+const beat = async (fn) => {
+  if (!VIDEO) return;
+  try {
+    await fn();
+  } catch {
+    /* presentation only */
+  }
+};
 const follower = privateKeyToAccount(followerKey);
 const leader = privateKeyToAccount(pk(env.LIVE_LEADER_PRIVATE_KEY) ?? generatePrivateKey());
 const rpc = env.EVM_RPC_URL || env.NEXT_PUBLIC_EVM_RPC_URL || "https://mainnet.base.org";
@@ -136,7 +166,11 @@ if (decision.verdict === "BLOCK" || proposal.notionalUsd > COPY_USD + 0.01) {
 
 // ---------- 3. Review page, real wallet ----------
 const browser = await chromium.launch({ executablePath: CHROME, args: ["--no-sandbox"] });
-const ctx = await browser.newContext({ viewport: { width: 1440, height: 1400 } });
+const ctx = await browser.newContext(
+  VIDEO
+    ? { viewport: { width: 1440, height: 900 }, recordVideo: { dir: join(OUT, "video"), size: { width: 1440, height: 900 } } }
+    : { viewport: { width: 1440, height: 1400 } },
+);
 const page = await ctx.newPage();
 const log = [];
 await page.exposeFunction("__signTyped", async (json) => {
@@ -194,15 +228,49 @@ await page.goto(`${BASE}/review/${proposal.id}`, { waitUntil: "networkidle" });
 const signBtn = page.getByRole("button", { name: "sign", exact: true }).first();
 await signBtn.waitFor({ timeout: 20000 });
 await page.screenshot({ path: join(OUT, "1-review.png"), fullPage: true });
+await beat(async () => {
+  await sleep(1500);
+  await caption(page, `A leader just published a live ETH plan. PACT turned it into my own copy: $${COPY_USD}, sized by my mandate — not the leader's $100.`);
+  await sleep(5500);
+  await page.getByText("Policy Check").first().scrollIntoViewIfNeeded();
+  await page.mouse.wheel(0, 250);
+  await caption(page, "My mandate decides before Flash is even asked: order type, chain, per-order cap, daily sleeve, reward:risk, my price bound, my exit.");
+  await sleep(6000);
+  const all = page.getByRole("button", { name: /see all \d+ checks/i }).first();
+  await all.scrollIntoViewIfNeeded();
+  await all.click();
+  await caption(page, "How PACT decided: every check behind this copy, with its number, its limit and its source.");
+  await sleep(6000);
+  await signBtn.scrollIntoViewIfNeeded();
+  await page.mouse.wheel(0, -120);
+  await caption(page, "Sign: Flash quotes my exact size, the price must agree with Chainlink, and my browser checks Flash's payload before my wallet signs.");
+  await sleep(4000);
+});
 const orderRes = page.waitForResponse((r) => r.url().includes("/api/order") && r.request().method() === "POST", { timeout: Number(env.LIVE_ORDER_TIMEOUT_MS ?? 180000) }).catch(() => null);
 await signBtn.click();
+await beat(async () => {
+  await page.getByText(/safe to sign/).first().waitFor({ timeout: 30000 });
+  await caption(page, "Wallet guard passed: recipient is me, tokens, amounts, spender and deadline all match. Now my wallet approves and signs.");
+  await sleep(3000);
+  await caption(page, "I sign the TWAP entry and my own stop and target (an attached TP/SL bracket) — real Base transactions.");
+});
 const oRes = await orderRes;
 const body = oRes ? await oRes.json().catch(() => null) : null;
 await sleep(1500);
+await beat(async () => {
+  await caption(page, oRes?.ok() ? "Submitted. Flash now executes my TWAP onchain, in 2 slices over 10 minutes, with my stop and target attached." : "Flash did not accept the order.");
+  await page.getByText(/Flash quote terms/i).first().scrollIntoViewIfNeeded();
+  await sleep(6000);
+});
 await page.screenshot({ path: join(OUT, "2-submitted.png"), fullPage: true });
 const guard = await page.getByText(/safe to sign/).first().textContent().catch(() => null);
 console.log(`\nWallet guard: ${guard ?? "not shown"}`);
 console.log(`Wallet actions: ${log.join(" → ")}`);
+if (VIDEO) {
+  const video = page.video();
+  await page.close();
+  console.log(`Demo segment: ${await video?.path()}`);
+}
 const orderId = body?.order?.orderId ?? body?.orderId;
 if (!oRes) {
   console.log(`No order was submitted: a wallet step did not complete (wallet actions: ${log.join(" → ") || "none"}). Check USDC and ETH on Base.`);
@@ -226,9 +294,10 @@ for (let i = 0; i < 90; i++) {
   await sleep(10_000);
 }
 console.log("\n");
-await page.goto(`${BASE}/execution?order=${encodeURIComponent(orderId)}`, { waitUntil: "networkidle" });
+const last = VIDEO ? await browser.newPage({ viewport: { width: 1440, height: 1400 } }) : page;
+await last.goto(`${BASE}/execution?order=${encodeURIComponent(orderId)}`, { waitUntil: "networkidle" });
 await sleep(2500);
-await page.screenshot({ path: join(OUT, "3-order.png"), fullPage: true });
+await last.screenshot({ path: join(OUT, "3-order.png"), fullPage: true });
 await browser.close();
 
 console.log(`Status: ${receipt?.status}`);

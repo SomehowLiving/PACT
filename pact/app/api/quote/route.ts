@@ -1,4 +1,3 @@
-import { INTEGRATOR_FEE_BPS } from "@/lib/constants";
 import { prepareCopyQuote } from "@/lib/copy-quote";
 import { requireOwner } from "@/lib/session";
 import { proposalById } from "@/lib/store";
@@ -20,7 +19,8 @@ export async function POST(req: Request) {
     quote: result.quote,
     guard: result.guard,
     bracketGuard: result.bracketGuard,
-    feeBps: INTEGRATOR_FEE_BPS,
+    feeBps: result.quote.pactFee?.bps ?? "0",
+    pactFee: result.quote.pactFee,
     otherOpenUnits: result.otherOpenUnits,
   });
 }

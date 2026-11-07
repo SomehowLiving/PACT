@@ -10,7 +10,11 @@ a session key they created and limited on chain), and Flash executes it.
 PACT does not hold a private key, custody funds, promise returns, or claim that copying a
 profitable leader makes a follower profitable.
 
-**Live:** https://pactfi.vercel.app · **Documentation:** [`docs/`](docs/README.md)
+**Live:** https://pactfi.vercel.app · **Documentation:** [`docs/`](docs/README.md) ·
+**Real copy on Base:** [fill 1](https://basescan.org/tx/0x0d3ed912328e1379a60a8506eb6a53b24e52bb7a7d85c68878a376e05fe25474),
+[fill 2](https://basescan.org/tx/0x682b4fd438bc90dbe5b49d24bb09e565e5f7f76a28744f107e5f9a39225f3a81)
+(a $5 TWAP copy executed by Flash at +2.0 bps from the leader's entry; see
+[README](README.md#a-real-copy-on-base))
 
 > **Status (Nov 6, 2026).** Everything below is built and covered by tests. The follower
 > flow has been run end to end against live Flash on Base and Arc with throwaway wallets:

@@ -1,4 +1,5 @@
 import type { LeaderConduct } from "./conduct";
+import { feeSentence, formatBps } from "./fees";
 import type { Decision, LeaderMandate, Policy, Proposal, StoredQuote } from "./types";
 
 /*
@@ -241,6 +242,18 @@ export function decisionTrace(t: TraceInput): TraceRow[] {
         value: `${q.limitBasis === "cross" ? "limitCrossPrice" : "limitNotionalPrice"} ${Number(q.effectiveLimitNotionalPrice).toLocaleString("en-US", { maximumFractionDigits: 2 })}`,
         result: "info",
         source: "entry × (1 + max drift); Flash's engine enforces it",
+      });
+    }
+    if (q.pactFee) {
+      add({
+        stage: "At the quote",
+        id: "fee",
+        label: "PACT's fee on this copy",
+        value: q.pactFee.charged ? formatBps(q.pactFee.bps) : "none",
+        limit: q.pactFee.charged ? undefined : `${formatBps(q.pactFee.rateBps)} once the leader has earned it`,
+        result: "info",
+        source: "flashIntegratorFeeBps on the quote and order; Flash collects it",
+        why: feeSentence(q.pactFee),
       });
     }
   }

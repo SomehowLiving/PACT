@@ -185,8 +185,11 @@ describe("flash contracts", () => {
       "buy",
       "2500",
     );
+    // All-in (fees included) is the cost basis; the execution price is before fees, where Flash's
+    // limit applies, and entry drift is measured on it (the same basis as quote time).
     expect(Number(buy.averageFillPrice)).toBeCloseTo(20.1 / 0.008, 6);
-    expect(buy.entryDriftBps).toBeCloseTo(((20.1 / 0.008 - 2500) / 2500) * 10_000, 6);
+    expect(Number(buy.executionPrice)).toBeCloseTo((20.1 - 0.08) / 0.008, 6);
+    expect(buy.entryDriftBps).toBeCloseTo((((20.1 - 0.08) / 0.008 - 2500) / 2500) * 10_000, 6);
     expect(buy.feesUsd).toBeCloseTo(0.08, 9);
 
     // A real WETH sell: fillPrice is USDC-per-... inverted (~0.00045). Flash's own average wins.

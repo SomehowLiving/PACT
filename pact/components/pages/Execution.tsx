@@ -5,6 +5,7 @@ import { useDeskContext } from "@/components/DeskContext";
 import { ActionBadge, AddrAvatar, Empty, KV, PageHeader, Planned, StatusBadge, type Tone, leaderName } from "@/components/ui";
 import { mandateFor } from "@/components/pages/following-actions";
 import { CHAINS } from "@/lib/chains";
+import { FEE_WAIVER_SHORT, formatBps } from "@/lib/fees";
 import { reasonLabel, usd } from "@/lib/format";
 import { executionRows, orderStatusLabel, pairLabel, relativeTime, type ExecutionRow } from "@/lib/views";
 import { receiptVerdict, type VerdictLine } from "@/lib/verdict";
@@ -329,7 +330,7 @@ export function Execution() {
                               <span className="tnum shrink-0 text-[11px] text-mute">{row.bucketCount ? `${row.fillCount}/${row.bucketCount}` : `${Math.round(share * 100)}%`}</span>
                             </div>
                           </td>
-                          <td className="r">{price(row.receipt.averageFillPrice)}</td>
+                          <td className="r">{price(row.receipt.executionPrice ?? row.receipt.averageFillPrice)}</td>
                           <td className="r">{bps(row.receipt.entryDriftBps)}</td>
                           <td>
                             <StatusBadge tone={st.tone} icon={st.icon}>
@@ -432,7 +433,11 @@ function OrderDetail({ row }: { row: ExecutionRow }) {
             <div className="grid grid-cols-2 gap-3">
               <Figure label="Target size" value={usd(receipt.notionalUsd)} />
               <Figure label="Executed" value={row.filledUsd > 0 ? usd(row.filledUsd) : "—"} />
-              <Figure label="Avg fill price" value={price(receipt.averageFillPrice)} />
+              <Figure
+                label="Avg execution price"
+                value={price(receipt.executionPrice ?? receipt.averageFillPrice)}
+                note={receipt.executionPrice && receipt.averageFillPrice ? `before fees · all-in ${price(receipt.averageFillPrice)}` : undefined}
+              />
               <Figure
                 label="Entry drift"
                 value={bps(receipt.entryDriftBps)}
@@ -480,11 +485,22 @@ function OrderDetail({ row }: { row: ExecutionRow }) {
             ) : (
               <p className="mt-2 text-[12.5px] text-mute">{row.closed ? "Flash closed this order without fill rows." : "Watching Flash while the order is open."}</p>
             )}
+            <OnchainAttribution orderId={orderId} receipt={receipt} explorer={explorer} />
             <dl className="mt-4">
               <KV
                 k="Fees"
                 v={receipt.feesUsd !== undefined ? `$${receipt.feesUsd.toFixed(3)} paid` : receipt.quotedFeeUsd ? `$${Number(receipt.quotedFeeUsd).toFixed(3)} quoted` : "—"}
               />
+              {receipt.pactFee ? (
+                <KV
+                  k="PACT's fee"
+                  v={
+                    receipt.pactFee.charged
+                      ? `${formatBps(receipt.pactFee.bps)}${receipt.pactFeeUsd !== undefined ? ` · $${receipt.pactFeeUsd.toFixed(4)} collected by Flash` : " · collected by Flash as it fills"}`
+                      : `none · ${receipt.pactFee.waivedFor.map((w) => FEE_WAIVER_SHORT[w]).join(", ")}`
+                  }
+                />
+              ) : null}
               {receipt.position ? (
                 <KV
                   k="Position"
@@ -626,7 +642,7 @@ function ReceiptVerdict({ receipt, side }: { receipt: Receipt; side: "buy" | "se
     follower: receipt.follower,
     receipt,
     quote: state?.quotes[receipt.proposalId],
-    integratorFeeBps: "0",
+    integratorFeeBps: receipt.pactFee?.bps ?? state?.quotes[receipt.proposalId]?.pactFee?.bps ?? "0",
   });
   return (
     <div className="mt-4 rounded-lg border border-line">
@@ -684,6 +700,69 @@ function eventDetail(e: EvidenceEvent) {
   if (e.kind === "order.rejected") return String(d.error ?? "").slice(0, 60);
   if (e.kind === "proposal.withdrawn") return reasonLabel(String(d.reason ?? ""));
   return "";
+}
+
+type TxAttributionView = { transactionId: string; status: "STAMPED" | "NONE" | "UNAVAILABLE"; codes: string[]; pact: boolean };
+
+/**
+ * Proof from Base alone that Flash settled these fills for a PACT copy: each settlement
+ * transaction's ERC-8021 suffix (Definitive's builder code, then PACT's), read and decoded
+ * on the server from the transaction's calldata.
+ */
+function OnchainAttribution({ orderId, receipt, explorer }: { orderId: string; receipt: Receipt; explorer: string }) {
+  const [data, setData] = useState<{ expectedCode: string | null; transactions: TxAttributionView[] } | null>(null);
+  const settled = (receipt.fills ?? []).filter((f) => f.transactionId).length;
+  useEffect(() => {
+    if (!settled) return;
+    let live = true;
+    void fetch(`/api/orders/${encodeURIComponent(orderId)}/attribution`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((body) => {
+        if (live && body) setData(body);
+      })
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, [orderId, settled]);
+  if (!settled) return null;
+  const txs = data?.transactions ?? [];
+  const pact = txs.filter((t) => t.pact).length;
+  const allPact = txs.length > 0 && pact === txs.length;
+  const anyStamp = txs.some((t) => t.status === "STAMPED");
+  const tone: Tone = !data ? "neutral" : allPact ? "good" : anyStamp ? "warn" : "neutral";
+  const badge = !data ? "READING BASE" : allPact ? "SETTLED THROUGH PACT" : anyStamp ? "FLASH SETTLEMENT" : "NOT STAMPED";
+  return (
+    <div className="mt-4 rounded-lg border border-line">
+      <div className="flex items-center justify-between border-b border-line px-3 py-2">
+        <span className="text-[12.5px] font-semibold text-ink">Onchain attribution</span>
+        <StatusBadge tone={tone}>{badge}</StatusBadge>
+      </div>
+      <ul className="divide-y divide-line-2">
+        {txs.map((t) => (
+          <li key={t.transactionId} className="flex items-center justify-between gap-3 px-3 py-2 text-[12px]">
+            <a className="font-mono text-[11px] text-accent hover:underline" href={`${explorer}${t.transactionId}`} target="_blank" rel="noreferrer">
+              {t.transactionId.slice(0, 10)}…{t.transactionId.slice(-4)}
+            </a>
+            <span className="text-right text-ink/85">
+              {t.status === "STAMPED" ? `ERC-8021 codes: ${t.codes.join(", ") || "none"}` : t.status === "NONE" ? "no ERC-8021 suffix" : "could not read the transaction"}
+              {t.pact ? <span className="ml-2 text-good">PACT ✓</span> : null}
+            </span>
+          </li>
+        ))}
+      </ul>
+      <p className="border-t border-line px-3 py-2 text-[11px] leading-relaxed text-mute">
+        Read from each settlement transaction&apos;s calldata on Base. Flash appends Definitive&apos;s builder code
+        {data?.expectedCode ? (
+          <>
+            {" "}and PACT&apos;s (<span className="font-mono">{data.expectedCode}</span>).
+          </>
+        ) : (
+          <>; PACT&apos;s own builder code is not configured on this server.</>
+        )}
+      </p>
+    </div>
+  );
 }
 
 /**

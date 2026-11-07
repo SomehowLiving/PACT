@@ -51,8 +51,16 @@ export function useMarket(timeframe: Timeframe = "5m", refreshMs = 60_000) {
       clearInterval(id);
     };
   }, [load, refreshMs]);
+  // Nothing to show yet (e.g. the source rate-limited the first read): try again soon.
+  useEffect(() => {
+    if (!error || market) return;
+    const retry = setTimeout(() => void load(), 8_000);
+    return () => clearTimeout(retry);
+  }, [error, market, load]);
   return { market, error, reload: load };
 }
+
+const TF_LABEL: Partial<Record<Timeframe, string>> = { "1m": "1m", "5m": "5m", "15m": "15m", "1h": "1H", "4h": "4H" };
 
 export function TradingChart({
   entry,
@@ -62,7 +70,8 @@ export function TradingChart({
   height = 360,
   showHeader = true,
   showLegend = true,
-  timeframe = "5m",
+  timeframe: initialTimeframe = "5m",
+  timeframes,
   fitLevels = false,
 }: {
   entry?: string;
@@ -74,9 +83,12 @@ export function TradingChart({
   showHeader?: boolean;
   showLegend?: boolean;
   timeframe?: Timeframe;
+  /** When given, the header offers these timeframes to switch between. */
+  timeframes?: Timeframe[];
   /** Keep the plan's levels in view even when the market has moved away from them. */
   fitLevels?: boolean;
 }) {
+  const [timeframe, setTimeframe] = useState<Timeframe>(initialTimeframe);
   const { market, error } = useMarket(timeframe);
   const host = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -209,13 +221,33 @@ export function TradingChart({
               <span className="text-ink">{fmt(shown.l)}</span> C <span className="text-ink">{fmt(shown.c)}</span>
             </span>
           ) : null}
-          <span className="ml-auto text-[11px] text-mute">{market ? `${market.dex} · GeckoTerminal` : ""}</span>
+          {timeframes?.length ? (
+            <span className="ml-auto flex items-center gap-1" role="tablist" aria-label="Chart timeframe">
+              {timeframes.map((tf) => (
+                <button
+                  key={tf}
+                  type="button"
+                  role="tab"
+                  aria-selected={tf === timeframe}
+                  onClick={() => setTimeframe(tf)}
+                  className={`rounded-md px-2 py-0.5 text-[11.5px] ${tf === timeframe ? "bg-panel-2 text-ink" : "text-mute hover:text-ink"}`}
+                >
+                  {TF_LABEL[tf] ?? tf}
+                </button>
+              ))}
+            </span>
+          ) : null}
+          <span className={`${timeframes?.length ? "" : "ml-auto "}text-[11px] text-mute`}>
+            {market ? `${market.dex} · GeckoTerminal${market.stale ? ` · delayed, as of ${new Date(market.updatedAt).toLocaleTimeString()}` : ""}` : ""}
+          </span>
         </div>
       ) : null}
       <div className="relative" style={{ height }}>
         {error && !market ? (
           <div className="absolute inset-0 flex items-center justify-center px-6 text-center text-[12px] text-mute">
-            Market data unavailable ({error}). PACT does not substitute a generated chart.
+            {/429/.test(error)
+              ? "GeckoTerminal is rate-limiting market data right now. Retrying in a few seconds; PACT never substitutes a generated chart."
+              : `Market data unavailable (${error}). PACT does not substitute a generated chart.`}
           </div>
         ) : !market ? (
           <div className="absolute inset-0 animate-pulse bg-panel-2/40" />

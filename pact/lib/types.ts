@@ -292,6 +292,10 @@ export type Fill = {
   fillPrice?: string;
   notional?: string;
   filledAt?: string;
+  /** Flash's fill status (CHAIN_STATUS_FINALIZED, …). */
+  status?: string;
+  /** PACT's fee on this fill in USD, as Flash reports it (`integratorFeeNotional`). */
+  integratorFeeUsd?: string;
 };
 
 export type Receipt = {
@@ -315,6 +319,8 @@ export type Receipt = {
   quotedExecutionPrice?: string;
   declaredEntryPrice?: string;
   averageFillPrice?: string;
+  /** Volume-weighted execution price before fees (what Flash's limit applies to); drift uses it. */
+  executionPrice?: string;
   entryDriftBps?: number;
   /** Quoted all-in price per target unit, fees included. */
   allInPrice?: string;
@@ -332,6 +338,10 @@ export type Receipt = {
   realizedPnlUsd?: number;
   /** Entry and exit from Flash's own fill rows; buys only. */
   position?: Position;
+  /** PACT's fee decision for this copy, as quoted and submitted (lib/fees). */
+  pactFee?: import("./fees").CopyFee;
+  /** PACT's fee actually collected by Flash, summed over finalised fills (`integratorFeeNotional`). */
+  pactFeeUsd?: number;
   notionalUsd: number;
   createdAt: string;
 };
@@ -402,6 +412,8 @@ export type StoredQuote = {
   twapBucketCount?: number;
   /** Who signs and pays: the follower's EOA (review) or their PACT wallet (Autopilot). */
   funder?: `0x${string}`;
+  /** PACT's fee on this copy (lib/fees), quoted and submitted to Flash identically. */
+  pactFee?: import("./fees").CopyFee;
   attachedBracket?: {
     bracket: AttachedBracket;
     salt?: string;

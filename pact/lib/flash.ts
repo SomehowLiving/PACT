@@ -1,4 +1,4 @@
-import { FLASH_BASE, INTEGRATOR_FEE_BPS, RESTING_ORDER_SECONDS } from "./constants";
+import { FLASH_BASE, RESTING_ORDER_SECONDS } from "./constants";
 import { batchCancelMessage, cancelMessage } from "./typed";
 import type { AttachedBracket, Chain, OrderType, Side, Trigger } from "./types";
 
@@ -73,10 +73,10 @@ export type QuoteBody = {
   flashIntegratorFeeBps?: string;
 };
 
-function maybeFeeBps() {
-  const n = Number(INTEGRATOR_FEE_BPS);
-  if (Number.isFinite(n) && n > 0) return { flashIntegratorFeeBps: INTEGRATOR_FEE_BPS };
-  return {};
+/** PACT's fee on this order, if any: sent only when positive, and identically on quote and order. */
+function feeField(bps?: string) {
+  const n = Number(bps);
+  return Number.isFinite(n) && n > 0 ? { flashIntegratorFeeBps: String(Math.floor(n)) } : {};
 }
 
 export type FlashQuote = {
@@ -196,18 +196,30 @@ export function fillExecutionMetrics(
     const values = final.map((fill) => num(fill[key] as string | undefined)).filter((v): v is number => v !== undefined);
     return values.length ? values.reduce((a, b) => a + b, 0) : undefined;
   };
+  // Flash's fill price is spent-per-received, fees included (the all-in price, right for cost
+  // basis). Flash enforces the limit price on the execution itself, before fees, so the bound
+  // and the entry drift are measured on the execution price: fees (USD, contra is USDC) are
+  // taken out of a buy's spend and added back to a sell's proceeds. Same basis as quote time.
+  const feesUsd = sum("feeNotional");
+  const executionPrice =
+    target > 0 && contra > 0
+      ? feesUsd !== undefined
+        ? (side === "buy" ? contra - feesUsd : contra + feesUsd) / target
+        : contra / target
+      : averageFillPrice;
   const entry = num(declaredEntryPrice);
   const entryDriftBps =
-    averageFillPrice !== undefined && entry && entry > 0
-      ? ((side === "buy" ? averageFillPrice - entry : entry - averageFillPrice) / entry) * 10_000
+    executionPrice !== undefined && entry && entry > 0
+      ? ((side === "buy" ? executionPrice - entry : entry - executionPrice) / entry) * 10_000
       : undefined;
 
   return {
     averageFillPrice: averageFillPrice?.toString(),
+    executionPrice: executionPrice?.toString(),
     entryDriftBps,
     finalFillCount: final.length,
     pendingFillCount,
-    feesUsd: sum("feeNotional"),
+    feesUsd,
     networkFeesUsd: sum("networkFeeNotional"),
     tradeFeesUsd: sum("tradeFeeNotional"),
     integratorFeesUsd: sum("integratorFeeNotional"),
@@ -223,6 +235,8 @@ export function quoteRequest(
     nowMs?: number;
     /** End of the leader's copy window. A resting copy must not outlive the plan it copies. */
     planExpiresAt?: string;
+    /** PACT's fee for this copy (lib/fees). Paper copies, marks and probes never carry one. */
+    integratorFeeBps?: string;
   },
 ): QuoteBody {
   const chain = input.chain ?? "base";
@@ -243,7 +257,7 @@ export function quoteRequest(
     funderAddress: input.funderAddress,
     forceMinimalAllowance: true,
     evmUsePermit2: true,
-    ...maybeFeeBps(),
+    ...feeField(input.integratorFeeBps),
   };
   if (input.orderType === "twap") {
     body.durationSeconds = input.durationSeconds ?? 600;

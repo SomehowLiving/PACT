@@ -49,6 +49,19 @@ describe("receipt verdict", () => {
     expect(v.lines.filter((l) => l.result === "MISMATCH").map((l) => l.id)).toEqual(["price.bound", "recipient"]);
   });
 
+  it("checks the bound on the execution before fees, as Flash enforces it (real order ad844b93)", () => {
+    // Two $2.92 + $2.08 TWAP slices: all-in $2,266.24 because of $0.059 fees, executed at $2,239.6.
+    const v = receiptVerdict({
+      ...base,
+      receipt: { averageFillPrice: "2266.2368", executionPrice: "2239.56", feesUsd: 0.0589, quotedFeeUsd: "0.1312", finalFillCount: 2 },
+      quote: { effectiveLimitNotionalPrice: "2261.5112" },
+      order: { recipientAddress: F, integratorFeeBps: null },
+    });
+    const bound = v.lines.find((l) => l.id === "price.bound");
+    expect(bound?.result).toBe("MATCH");
+    expect(bound?.detail).toBe("executed at 2239.56 before fees vs max 2261.51 (all-in 2266.24 with fees)");
+  });
+
   it("stays pending with no finalised fills, and flags changed protection levels", () => {
     expect(
       receiptVerdict({ ...base, receipt: { finalFillCount: 0 }, quote: { effectiveLimitNotionalPrice: "2525" } }).overall,

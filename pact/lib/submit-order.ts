@@ -1,4 +1,4 @@
-import { INTEGRATOR_FEE_BPS } from "./constants";
+import { builderCode } from "./erc8021";
 import { appendEvidence, hashSync, threads } from "./evidence";
 import { listOrders, postOrder, type OrderBody } from "./flash";
 import { addReceipt, attachOrder, decisionFor, quoteFor } from "./store";
@@ -89,8 +89,10 @@ export async function submitCopy(
       ? { twapBucketCount: quote.twapBucketCount ?? proposal.twapBucketCount }
       : {}),
     ...(proposal.orderType === "twap" && proposal.startTime ? { startTime: proposal.startTime } : {}),
-    ...(Number(INTEGRATOR_FEE_BPS) > 0 ? { flashIntegratorFeeBps: INTEGRATOR_FEE_BPS } : {}),
-    ...(process.env.FLASH_BUILDER_CODE ? { erc8021AttributionCode: process.env.FLASH_BUILDER_CODE } : {}),
+    // Exactly the fee that was quoted (Flash rejects a mismatch; lib/fees decides it).
+    ...(Number(quote.pactFee?.bps) > 0 ? { flashIntegratorFeeBps: quote.pactFee!.bps } : {}),
+    // PACT's ERC-8021 builder code: Flash appends it to the settlement transaction's calldata.
+    ...(builderCode() ? { erc8021AttributionCode: builderCode() } : {}),
   };
 
   // Flash can create (even fill) an order and still answer 4xx, so never treat an error as
@@ -142,6 +144,7 @@ export async function submitCopy(
     allInPrice: quote.allInPrice,
     quotedFeeUsd: quote.feeNotional,
     quotedCostRatio: quote.costRatio,
+    pactFee: quote.pactFee,
     declaredEntryPrice: proposal.entryReferencePrice,
     notionalUsd: quote.notionalUsd ?? proposal.notionalUsd,
     protection: quote.attachedBracket

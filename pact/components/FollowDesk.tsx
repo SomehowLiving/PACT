@@ -13,6 +13,7 @@ import { useDesk } from "@/components/useDesk";
 import { defaultPolicy, WETH } from "@/lib/constants";
 import { CHAINS, CHAIN_IDS } from "@/lib/chains";
 import { bracketPriceFloor, verifyBracketSigning, verifySigning, type GuardResult } from "@/lib/guard";
+import { feeSentence, formatBps, type CopyFee } from "@/lib/fees";
 import { batchCancelMessage, cancelMessage, parseOrderTypedData } from "@/lib/typed";
 import { capacity, protectionCancellable, relativeTime, stillLive } from "@/lib/views";
 import { reasonLabel, shortAddr, usd } from "@/lib/format";
@@ -442,6 +443,8 @@ export function ReviewWorkspace({
               target={proposal.takeProfitPrice}
               bound={boundsEntry ? bound : undefined}
               height={330}
+              timeframe="1h"
+              timeframes={["5m", "15m", "1h", "4h"]}
               fitLevels
             />
           ) : (
@@ -787,6 +790,7 @@ export function ProposalCard({
     estimatedPriceImpact?: string;
     declaredLimitNotionalPrice?: string;
     effectiveLimitNotionalPrice?: string;
+    pactFee?: CopyFee;
   } | null>(null);
   const blocked = !decision || decision.verdict === "BLOCK";
   const isFollower = Boolean(
@@ -849,6 +853,7 @@ export function ProposalCard({
         estimatedPriceImpact?: string;
         declaredLimitNotionalPrice?: string;
         effectiveLimitNotionalPrice?: string;
+        pactFee?: CopyFee;
         attachedBracket?: {
           orderTypedData?: string;
           permitTypedData?: string;
@@ -861,6 +866,7 @@ export function ProposalCard({
         estimatedPriceImpact: quote.estimatedPriceImpact,
         declaredLimitNotionalPrice: quote.declaredLimitNotionalPrice,
         effectiveLimitNotionalPrice: quote.effectiveLimitNotionalPrice,
+        pactFee: quote.pactFee,
       });
       mark("quote", "done");
 
@@ -1202,7 +1208,11 @@ export function ProposalCard({
               k="your execution bound"
               v={executionQuote.effectiveLimitNotionalPrice ? `$${executionQuote.effectiveLimitNotionalPrice}` : "none"}
             />
+            {executionQuote.pactFee ? (
+              <ReviewRow k="PACT's fee" v={executionQuote.pactFee.charged ? formatBps(executionQuote.pactFee.bps) : "none on this copy"} />
+            ) : null}
           </dl>
+          {executionQuote.pactFee ? <p className="mt-2 text-[11px] leading-relaxed text-dim">{feeSentence(executionQuote.pactFee)}</p> : null}
           <p className="mt-2 text-[10px] leading-relaxed text-mute">
             The bound is sent to Flash for this quote; it is not a chart prediction or a guaranteed fill.
           </p>

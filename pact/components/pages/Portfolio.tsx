@@ -6,7 +6,7 @@ import { ActionBadge, AddrAvatar, Empty, LayerTag, Meter, PageHeader, Panel, Sta
 import { mandateFor } from "@/components/pages/following-actions";
 import { usd } from "@/lib/format";
 import { CHAINS } from "@/lib/chains";
-import { CLOSED_STATUSES, capacity, exposureGroups, orderStatusLabel, pairLabel, type ExposureGroup } from "@/lib/views";
+import { CLOSED_STATUSES, capacity, exposureGroups, isDemoAddress, orderStatusLabel, pairLabel, type ExposureGroup } from "@/lib/views";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import type { Mark } from "@/lib/positions";
@@ -160,7 +160,12 @@ export function Portfolio() {
   const mine = useMine();
   const data = usePositions(follower);
   const viewingOwnWallet = !isDemo && !!address && follower?.toLowerCase() === address.toLowerCase();
-  const walletValue = useWalletValue(address, viewingOwnWallet);
+  // A real (non-DEMO) wallet opened read-only: its balances are real, so show them.
+  const viewingRealWallet = isDemo && !!follower && !isDemoAddress(follower);
+  const walletValue = useWalletValue(
+    viewingOwnWallet ? address : viewingRealWallet ? (follower as `0x${string}`) : undefined,
+    viewingOwnWallet || viewingRealWallet,
+  );
   const [tab, setTab] = useState<Tab>("positions");
   const [leaderFilter, setLeaderFilter] = useState("all");
   const [assetFilter, setAssetFilter] = useState("all");
@@ -212,7 +217,7 @@ export function Portfolio() {
               <Tile
                 label="Total Value"
                 value={walletValue === undefined ? "—" : usd(walletValue)}
-                sub={viewingOwnWallet ? "Base wallet · ETH, USDC, WETH" : isDemo ? "DEMO desk holds no funds" : "Connect your wallet"}
+                sub={viewingOwnWallet || viewingRealWallet ? "Base wallet · ETH, USDC, WETH" : isDemo ? "DEMO desk holds no funds" : "Connect your wallet"}
               />
               <Tile
                 label="Open PnL"

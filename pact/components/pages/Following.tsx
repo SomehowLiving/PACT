@@ -213,25 +213,29 @@ export function Following() {
 
       {/* Risk sleeves */}
       <Panel className="mt-4" title="Risk sleeves" layer="policy" subtitle="What each leader can still use today, inside your portfolio limits">
-        <div className="grid gap-px bg-line-2 md:grid-cols-2 xl:grid-cols-3">
+        {/* One card per leader; columns follow the number of leaders so no empty cells show. */}
+        <div className={`grid gap-3 p-4 ${follows.length >= 3 ? "md:grid-cols-2 xl:grid-cols-3" : follows.length === 2 ? "md:grid-cols-2" : ""}`}>
           {follows.map((leader) => {
             const mandate = mandateFor(policy, leader);
             const sleeve = sleeveOf(leader);
             const paused = actions.isPaused(leader);
+            const wide = follows.length === 1;
             return (
-              <div key={leader} className="space-y-3 bg-panel p-4">
-                <div className="flex items-center justify-between gap-2">
+              <div key={leader} className={`rounded-lg border border-line bg-panel-2/40 p-4 ${wide ? "grid gap-x-10 gap-y-3 lg:grid-cols-2" : "space-y-3"}`}>
+                <div className={`flex items-center justify-between gap-2 ${wide ? "lg:col-span-2" : ""}`}>
                   <span className="flex items-center gap-2">
                     <LeaderTag value={leader} size={20} />
                   </span>
                   {paused ? <span className="text-[11px] text-warn">⏸ paused</span> : null}
                 </div>
-                <Meter label="Leader sleeve today" used={sleeve?.used ?? 0} max={sleeve?.max ?? policy.maxLeaderDailyUsd} format={usd} />
-                <Meter
-                  label="Open plans from this leader"
-                  used={sleeve?.openPlans ?? 0}
-                  max={policy.maxOpenPlansPerLeader}
-                />
+                <div className="space-y-3">
+                  <Meter label="Leader sleeve today" used={sleeve?.used ?? 0} max={sleeve?.max ?? policy.maxLeaderDailyUsd} format={usd} />
+                  <Meter
+                    label="Open plans from this leader"
+                    used={sleeve?.openPlans ?? 0}
+                    max={policy.maxOpenPlansPerLeader}
+                  />
+                </div>
                 <dl>
                   <KV k="Per-order cap" v={usd(policy.maxNotionalUsd)} />
                   <KV k="Order types" v={(mandate?.allowOrderTypes ?? policy.allowOrderTypes).join(", ")} />

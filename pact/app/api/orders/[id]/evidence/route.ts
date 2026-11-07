@@ -1,6 +1,5 @@
 import { CHAINS } from "@/lib/chains";
 import { evidenceHead, threadEvents, threads, verifyThread, type EvidenceEvent } from "@/lib/evidence";
-import { INTEGRATOR_FEE_BPS } from "@/lib/constants";
 import { receiptVerdict, refreshReceipt } from "@/lib/receipts";
 import { policyFor, snapshot } from "@/lib/store";
 
@@ -36,7 +35,7 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
     receipt: current,
     quote,
     order: refreshed.ok ? refreshed.detail.order : undefined,
-    integratorFeeBps: INTEGRATOR_FEE_BPS,
+    integratorFeeBps: current.pactFee?.bps ?? quote?.pactFee?.bps ?? "0",
   });
 
   // The proposal's own chain of events, plus the mandate and plan records its decision names.

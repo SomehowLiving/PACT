@@ -48,13 +48,15 @@ export type VerdictLine = { id: string; label: string; result: "MATCH" | "MISMAT
 export function receiptVerdict(input: {
   side: "buy" | "sell";
   follower: string;
-  receipt: Pick<Receipt, "averageFillPrice" | "feesUsd" | "quotedFeeUsd" | "finalFillCount" | "protection">;
+  receipt: Pick<Receipt, "averageFillPrice" | "executionPrice" | "feesUsd" | "quotedFeeUsd" | "finalFillCount" | "protection">;
   quote?: Pick<StoredQuote, "effectiveLimitNotionalPrice">;
   order?: Pick<FlashOrder, "recipientAddress" | "integratorFeeBps">;
   integratorFeeBps: string;
 }): { overall: "MATCH" | "MISMATCH" | "PENDING"; lines: VerdictLine[] } {
   const lines: VerdictLine[] = [];
-  const avg = Number(input.receipt.averageFillPrice);
+  // Flash enforces the limit on the execution, before fees; compare like with like.
+  const allIn = Number(input.receipt.averageFillPrice);
+  const avg = Number(input.receipt.executionPrice ?? input.receipt.averageFillPrice);
   const bound = Number(input.quote?.effectiveLimitNotionalPrice);
   const filled = (input.receipt.finalFillCount ?? 0) > 0 && avg > 0;
 
@@ -68,7 +70,9 @@ export function receiptVerdict(input: {
       id: "price.bound",
       label: "Fill within your price bound",
       result: ok ? "MATCH" : "MISMATCH",
-      detail: `average ${avg.toFixed(2)} vs ${input.side === "buy" ? "max" : "min"} ${bound.toFixed(2)}`,
+      detail: `executed at ${avg.toFixed(2)} before fees vs ${input.side === "buy" ? "max" : "min"} ${bound.toFixed(2)}${
+        allIn > 0 && Math.abs(allIn - avg) > 0.005 ? ` (all-in ${allIn.toFixed(2)} with fees)` : ""
+      }`,
     });
   }
 

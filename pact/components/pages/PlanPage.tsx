@@ -2,6 +2,7 @@
 
 import { useDeskContext } from "@/components/DeskContext";
 import { ReferencePrices } from "@/components/ReferencePrices";
+import { ShareToX, planShareText } from "@/components/ShareToX";
 import { SignalList } from "@/components/SignalList";
 import { TradingChart } from "@/components/TradingChart";
 import { ActionBadge, Addr, AddrAvatar, Empty, Panel, Segmented, StatusBadge, type Tone, leaderName } from "@/components/ui";
@@ -107,6 +108,9 @@ export function PlanPage({ id }: { id: string }) {
               <span>published {relativeTime(plan.createdAt)}</span>
               <span>{expired ? "window closed" : `window ends ${relativeTime(plan.expiresAt)}`}</span>
             </div>
+          </div>
+          <div className="ml-auto">
+            <ShareToX text={planShareText(plan)} url={`/plans/${plan.id}`} />
           </div>
         </div>
         <div className="grid grid-cols-2 divide-line sm:grid-cols-4 lg:grid-cols-8 lg:divide-x [&>*]:border-line">

@@ -40,6 +40,8 @@ export type MarketSnapshot = {
   liquidityUsd?: number;
   candles: Candle[];
   updatedAt: string;
+  /** The source refused a refresh (rate limit); this is the last real snapshot, as of `updatedAt`. */
+  stale?: boolean;
 };
 
 type CacheEntry = { value: MarketSnapshot; at: number };
@@ -93,16 +95,42 @@ let poolCache: { pools: Pool[]; at: number } | undefined;
 
 async function wethPools() {
   if (poolCache && Date.now() - poolCache.at < 5 * CACHE_MS) return poolCache.pools;
-  const pools = await getJson<{ data?: Pool[] }>(`/networks/base/tokens/${WETH}/pools?page=1`);
+  const pools = await getJson<{ data?: Pool[] }>(`/networks/base/tokens/${WETH}/pools?page=1`).catch((e) => {
+    // The pool list barely changes: keep using the last one if a refresh is refused.
+    if (poolCache) return { data: poolCache.pools };
+    throw e;
+  });
   poolCache = { pools: pools.data ?? [], at: Date.now() };
   return poolCache.pools;
 }
 
+// One request per key at a time: concurrent readers share it instead of bursting the free API.
+const inflight = new Map<string, Promise<MarketSnapshot>>();
+
+/**
+ * WETH/USDC on Base from GeckoTerminal. Its free API rate-limits (429); when a refresh fails,
+ * the last real snapshot is served marked `stale` with its own `updatedAt`, never a made-up one.
+ */
 export async function baseWethUsdcMarket(timeframe: Timeframe = "5m"): Promise<MarketSnapshot> {
   const key = `base-weth-usdc-${timeframe}`;
   const hit = cache.get(key);
   if (hit && Date.now() - hit.at < CACHE_MS) return hit.value;
+  const pending = inflight.get(key);
+  if (pending) return pending;
+  const run = fetchMarket(timeframe, key)
+    .catch((e) => {
+      if (!hit) throw e;
+      const stale = { ...hit.value, stale: true };
+      // Back off: serve the last snapshot for 15 s before asking the source again.
+      cache.set(key, { value: stale, at: Date.now() - CACHE_MS + 15_000 });
+      return stale;
+    })
+    .finally(() => inflight.delete(key));
+  inflight.set(key, run);
+  return run;
+}
 
+async function fetchMarket(timeframe: Timeframe, key: string): Promise<MarketSnapshot> {
   const pools = { data: await wethPools() };
   const weth = tokenId(WETH);
   const usdc = tokenId(USDC);

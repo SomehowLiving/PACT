@@ -4,6 +4,7 @@ import { Connect } from "@/components/Connect";
 import { DeskProvider, useDeskContext } from "@/components/DeskContext";
 import { LayerTag } from "@/components/ui";
 import { shortAddr } from "@/lib/format";
+import { isDemoAddress } from "@/lib/views";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
@@ -623,14 +624,22 @@ function NavDrawer({ path, onClose }: { path: string; onClose: () => void }) {
 }
 
 function DemoBanner() {
-  const { isDemo, policy, setViewAs } = useDeskContext();
+  const { isDemo, policy, setViewAs, viewAs } = useDeskContext();
   if (!isDemo) return null;
+  // A real wallet can be opened read-only too; only the seeded DEMO desks are demo data.
+  const realWallet = viewAs !== "wallet" && !isDemoAddress(viewAs);
   return (
     <div className="mb-5 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-dashed border-line px-4 py-2 text-[12.5px] text-mute">
-      <LayerTag layer="demo" />
-      <span>
-        Read-only DEMO desk <span className="text-ink">{policy.label}</span> · seeded data, not a real account
-      </span>
+      {realWallet ? null : <LayerTag layer="demo" />}
+      {realWallet ? (
+        <span>
+          Read-only view of wallet <span className="font-mono text-ink">{shortAddr(viewAs)}</span> · real Base and Flash data
+        </span>
+      ) : (
+        <span>
+          Read-only DEMO desk <span className="text-ink">{policy.label}</span> · seeded data, not a real account
+        </span>
+      )}
       <button type="button" onClick={() => setViewAs("wallet")} className="ml-auto font-medium text-accent hover:underline">
         Back to my desk
       </button>

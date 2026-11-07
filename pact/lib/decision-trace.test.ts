@@ -98,4 +98,18 @@ describe("decision trace", () => {
     expect(byId.cost.value).toContain("0.34%");
     expect(rows.some((r) => r.result === "pending")).toBe(false);
   });
+
+  it("shows PACT's fee decision once quoted: waived for a leader on probation, with the reason", () => {
+    const waived = { bps: "0", charged: false, rateBps: "10", waivedFor: ["LEADER_ON_PROBATION" as const] };
+    const rows = decisionTrace(
+      input(proposal(), { verdict: "ALLOW", action: "COPY", reasons: [] }, {
+        quote: { proposalId: "p1", quoteId: "q", qty: "25", pactFee: waived } as never,
+      }),
+    );
+    const fee = rows.find((r) => r.id === "fee");
+    expect(fee?.value).toBe("none");
+    expect(fee?.limit).toBe("0.10% (10 bps) once the leader has earned it");
+    expect(fee?.why).toBe("No PACT fee on this copy: the leader is on probation.");
+    expect(decisionTrace(input(proposal(), { verdict: "ALLOW", action: "COPY", reasons: [] })).some((r) => r.id === "fee")).toBe(false);
+  });
 });

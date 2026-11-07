@@ -23,7 +23,8 @@ Demo lab, or connect a wallet.
 | `EVM_RPC_URL`, `NEXT_PUBLIC_EVM_RPC_URL` | Base RPC for reads (default: the public endpoint) |
 | `BASE_LOGS_RPC_URL` | Base endpoint for log reads (default `https://base-rpc.publicnode.com`; `mainnet.base.org` refuses log queries) |
 | `NEXT_PUBLIC_FLASH_VAULT` | Pin the integrator fee vault in the wallet guard |
-| `FLASH_BUILDER_CODE` | Optional Flash builder code |
+| `FLASH_BUILDER_CODE` | PACT's ERC-8021 builder code (register it on base.dev), stamped on every copy's settlement transaction |
+| `PACT_FEE_BPS` | PACT's fee on a proven leader's copy, in bps (default 10, max 100, 0 = off); collected by Flash for the API key's integrator account |
 | `PACT_SESSION_SECRET` | Session cookie key (generated beside the store if unset) |
 | `PACT_STORE_FILE` | State location (default `.data/store.json`); sidecars sit beside it |
 | `PACT_AUTOSEED=1` | Seed the DEMO desks on the first read of an empty store |

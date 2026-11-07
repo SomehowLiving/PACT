@@ -51,8 +51,6 @@ export function defaultPolicy(follower: `0x${string}`): Policy {
   };
 }
 
-export const INTEGRATOR_FEE_BPS = "0";
-
 /**
  * Limit and trigger orders rest until they fire. Flash wants an explicit end time on them:
  * without one, the shared Permit2 permit for the wallet and token never expires.

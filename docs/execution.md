@@ -101,6 +101,33 @@ A receipt records:
 Each order's evidence bundle (`/api/orders/[id]/evidence?download`) contains Flash's order and
 fills, PACT's decision and quote, and the hash-chained trail for that copy.
 
+## PACT's fee
+
+PACT charges a fee only on copies of a leader who has earned it (`lib/fees.ts`). The fee is
+decided before the quote and sent to Flash as `flashIntegratorFeeBps`, identically on
+`POST /quote` and `POST /order`. Flash includes it in the quoted all-in cost and collects it at
+execution.
+
+| Leader | Fee on the copy |
+| --- | --- |
+| Graduated from probation, clean conduct | `PACT_FEE_BPS` (default 10 bps = 0.10%) |
+| On probation (fewer than 3 settled paper copies, or a contradicted plan) | none |
+| Conduct caution or alert (front-running, selling into followers) | none |
+| Any leader, while PACT runs on Flash's shared playground key | none (the fee would go to that shared account) |
+
+The review screen and the decision trace show the fee or the reason it is waived. The receipt
+records the decision, sums `integratorFeeNotional` from Flash's finalized fill rows as the fee
+actually collected, and checks that Flash's order carries exactly the disclosed rate.
+
+## Onchain attribution
+
+Every copy carries PACT's ERC-8021 builder code (`FLASH_BUILDER_CODE`, sent as
+`erc8021AttributionCode` on `POST /order`). Flash appends it to the settlement transaction's
+calldata after Definitive's own code. The Orders page reads each fill's transaction from Base,
+decodes the suffix (`lib/erc8021.ts`, `/api/orders/[id]/attribution`), and shows **SETTLED
+THROUGH PACT** when PACT's code is there. This proves from the chain alone that the fill came
+through a PACT copy.
+
 ## Cancelling
 
 Cancelling a copy cancels the entry **and** its live protective order with one signature
